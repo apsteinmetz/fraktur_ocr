@@ -10,9 +10,9 @@ library(translateR)
 # Fraktur training set must be loaded. Only run once.
 # tesseract::tesseract_download("frk")
 google.api.key = Sys.getenv("GGMAP_GOOGLE_API_KEY")
-#path = "C:/Users/Arthur/Documents/Scans/"
-path = "C:/Users/Arthur/Pictures/ControlCenter4/Scan/"
-file_name = "light_300.jpg"
+path = "C:/Users/Arthur/Documents/Scans/"
+#path = "C:/Users/Arthur/Pictures/ControlCenter4/Scan/"
+file_name = "Neu_Schowe_Church_19.jpg"
 
 #scan at 300dpi, highest brighness setting
 ocr_lines <- function(file,engine = "frk"){
@@ -46,7 +46,7 @@ process_page <- function(file_name){
    lines_raw <- ocr_lines(paste0(path,file_name))
 
    # convert "ſ" to s
-   lines <- lines_raw %>%
+   German <- lines_raw %>%
       mutate(line = str_replace_all(line,"ſ","s")) %>%
       mutate(line = str_remove_all(line,"[\\|\\*<>»]")) %>%
       mutate(line = ifelse(str_detect(line,"[a-zA-Z]3"),str_replace(line,"3","s"),line)) %>%
@@ -54,7 +54,7 @@ process_page <- function(file_name){
       mutate(line = str_replace_all(line,"Ginleitung","Einleitung")) %>%
       mutate(line = str_replace_all(line,"=","-"))
 
-   words <- tokenizers::tokenize_words(lines$line,strip_punct = FALSE) %>%
+   words <- tokenizers::tokenize_words(lines$German,strip_punct = FALSE) %>%
       unlist(recursive = FALSE)
 
 
@@ -135,14 +135,19 @@ process_page <- function(file_name){
       mutate(English = str_replace_all(English," \\.",".")) %>%
       mutate(English = str_squish(English))
 
+   content <- bind_cols(lines,en_page)
 
-   lines_both <- lines %>% rename(German = line) %>%
-      bind_cols(en_page)
+   processed <- tibble(img_file=file_name,
+          ocr_engine = "Tesseract",
+          translator = "Google",
+          lines,
+          en_page) %>%
+      nest(data = c(line_num,German,English)) %>%
+      rename(content = data) %>%
+      {.}
 
-   return(tibble(img_file=file_name,
-                 ocr_engine = "Tesseract",
-                 translator = "Google",
-                 text = list(lines_both)))
+
+      return(processed)
 }
 
 # main loop -----------------------------------------------------------------------------
