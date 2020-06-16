@@ -1,0 +1,50 @@
+---
+title: "Side by Side"
+output:
+  html_document:
+    df_print: paged
+---
+<style type="text/css">
+div.main-container {
+  max-width: 1800px !important;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 1800)
+```
+
+```{r sample, echo=FALSE}
+library(knitr)
+library(kableExtra)
+library(grid)
+library(gridExtra)
+library(magick)
+library(multipanelfigure)
+
+load("../data/ns_church_history.rdata")
+page_img_file <- "../img/Neu_Schowe_Church_02.jpg"
+page_text_de <- NS_Church_History$content[[2]][2]
+page_text_en <- NS_Church_History$content[[2]][3]
+```
+
+```{r,fig.width=400}
+# instantiate
+figure <- multi_panel_figure(
+   width = 400,
+   height = 300,
+   columns = 3,
+  rows = 1)
+
+
+figure <- figure %>% 
+   fill_panel(panel = page_img_file,scaling = "stretch",column = 1) %>% 
+   fill_panel(tableGrob(page_text_de),
+                        base_size = 12, row= 1,column = 2,panel_clip = "off") %>% 
+   fill_panel(tableGrob(page_text_en, rows = NULL),
+                        base_size = 12 ,row= 1,column = 3,panel_clip = "off") 
+
+figure
+```
