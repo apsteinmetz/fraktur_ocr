@@ -1,0 +1,11 @@
+<style type="text/css">
+   div.main-container {
+      max-width: 1800px !important;
+      margin-left: auto;
+      margin-right: auto;
+   }
+</style>
+
+   ```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 1800)
+```

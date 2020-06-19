@@ -1,22 +1,15 @@
 ---
 title: "Side by Side"
-output:
-  html_document:
-    df_print: paged
+output:  
+  pdf_document:
+     fig_width: 12
+     fig_height: 8
+  geometry: margin=1in
 ---
-<style type="text/css">
-div.main-container {
-  max-width: 1800px !important;
-  margin-left: auto;
-  margin-right: auto;
-}
-</style>
 
-```{r set-options, echo=FALSE, cache=FALSE}
-options(width = 1800)
-```
+\pdfpagewidth=11in \pdfpageheight=8in
 
-```{r sample, echo=FALSE}
+```{r sample, message=FALSE, warning=FALSE, include=FALSE}
 library(knitr)
 library(kableExtra)
 library(grid)
@@ -30,21 +23,21 @@ page_text_de <- NS_Church_History$content[[2]][2]
 page_text_en <- NS_Church_History$content[[2]][3]
 ```
 
-```{r,fig.width=400}
+```{r echo=FALSE, message=FALSE, warning=FALSE}
 # instantiate
 figure <- multi_panel_figure(
-   width = 400,
-   height = 300,
-   columns = 3,
+#   width = 400,
+#   height = 300,
+   columns = 4,
   rows = 1)
 
 
 figure <- figure %>% 
-   fill_panel(panel = page_img_file,scaling = "stretch",column = 1) %>% 
-   fill_panel(tableGrob(page_text_de),
-                        base_size = 12, row= 1,column = 2,panel_clip = "off") %>% 
-   fill_panel(tableGrob(page_text_en, rows = NULL),
-                        base_size = 12 ,row= 1,column = 3,panel_clip = "off") 
+   fill_panel(panel = page_img_file,scaling = "stretch",column = c(1,2)) %>% 
+   fill_panel(tableGrob(page_text_de, theme = ttheme_default(base_size = 7)),
+              row= 1,column = 3,panel_clip = "off") %>% 
+   fill_panel(tableGrob(page_text_en, theme = ttheme_default(base_size = 7), rows = NULL),
+              row= 1,column = 4,panel_clip = "off") 
 
 figure
 ```
