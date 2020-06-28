@@ -2,6 +2,8 @@
 library(tidyverse)
 library(tesseract)
 library(magick)
+library(imager)
+library(imagerExtra)
 library(tokenizers)
 library(tidytext)
 library(hunspell)
@@ -12,9 +14,9 @@ library(translateR)
 #tesseract::tesseract_download("frk")
 
 #manually install this instead
-dl <- "https://github.com/tesseract-ocr/tessdata_best/raw/master/frk.traineddata"
+#dl <- "https://github.com/tesseract-ocr/tessdata_best/raw/master/frk.traineddata"
 # this is pretty good
-dl <- #https://github.com/tesseract-ocr/tessdata/blob/master/deu_frak.traineddata
+# dl <- #https://github.com/tesseract-ocr/tessdata/blob/master/deu_frak.traineddata
 
 # this crashes RSTudio
 #download.file( "https://ub-backup.bib.uni-mannheim.de/~stweil/ocrd-train/data/Fraktur_5000000/tessdata_best/Fraktur_50000000.334_450937.traineddata",
@@ -37,6 +39,13 @@ ocr_lines <- function(file,engine = ocr_engine){
       enframe(name = "line_num",value="line")
 }
 
+# using imagerExtra instead of magick
+ocr_lines_alt <- function(file,engine = ocr_engine){
+   imagerExtra::OCR(file,engine = engine) %>%
+      tokenize_regex(pattern = "\\n") %>%
+      unlist() %>%
+      enframe(name = "line_num",value="line")
+}
 ocr_words <- function(file,engine = ocr_engine){
    tesseract::ocr(file,engine = engine) %>%
       tokenize_words(strip_punct = FALSE)
@@ -52,19 +61,29 @@ process_page <- function(file_name){
    # IMAGE PROCESSING FOR BETTER OCR, IF NECESSARY -----------------------
    # Trial and error
    print(paste0("Processing image ",file_name))
+
+   # # tried imagerExtra for preprocessing. No improvement and slower
+   # page_img1 <- imager::load.image(paste0(path,file_name))  %>%
+   #    grayscale() %>%
+   #    DenoiseDCT(sdn = .01) %>%
+   #    ThresholdAdaptive(0.1, range = c(0,1)) %>%
+   #    cimg2magick()
+
+
    page_img <- image_read(paste0(path,file_name)) ; page_img
+   # page_img <- image_quantize(page_img,max = 2,colorspace = "gray") ; page_img
    # page_img <- image_contrast(page_img,sharpen = 100) ; page_img
    # page_img <- image_trim(page_img,fuzz = 50) ; page_img
    # page_img <- image_modulate(page_img,brightness = 90,saturation = 50); page_img
    page_img <- image_enhance(page_img); page_img
-   #page_img <- image_quantize(page_img,max = 2,colorspace = "gray") ; page_img
    #page_img <- image_lat(page_img, geometry = '2x2-10%') ; page_img
 
-   lines_test <- ocr_lines(page_img,engine = "deu_frak") %>%
-      full_join(ocr_lines(page_img,engine = "frk"), by = "line_num") %>%
-      rename(deu_frak = line.x,frk = line.y) %>%
-      mutate(frk = str_replace_all(frk,"ſ","s"))
-   View(lines_test)
+   # lines_test <- ocr_lines(page_img,engine = "deu_frak") %>%
+   #    full_join(ocr_lines_alt(page_img1,engine = "deu_frak"), by = "line_num") %>%
+   #    rename(magick = line.x,imager = line.y) %>%
+   #    # mutate(frk = str_replace_all(frk,"ſ","s")) %>%
+   #    {.}
+   # View(lines_test)
 
 
    # USE TESSERACT OCR ENGINE ----------------------------------------

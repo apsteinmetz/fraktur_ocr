@@ -1,0 +1,33 @@
+---
+output: pdf_document
+classoption: landscape     
+---
+
+
+```{r sample, message=FALSE, warning=FALSE, include=FALSE}
+library(knitr)
+library(grid)
+library(gridExtra)
+library(magick)
+library(multipanelfigure)
+
+one_line <- "Here is some rando text that is 40 lines about 80 columns. See what I did there?"
+df <- data.frame(text=rep(one_line,40))
+img <- "https://jeroen.github.io/images/frink.png"
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE,fig.show="hold",out.width="50%"}
+# instantiate
+figure <- multi_panel_figure(
+   columns = 4,
+   rows = 1)
+
+figure <- figure %>%
+   fill_panel(panel = img,scaling = "stretch",column = c(1,2)) %>%
+   fill_panel(tableGrob(df, theme = ttheme_default(base_size = 7)),
+              row= 1,column = 3,panel_clip = "off") %>%
+   fill_panel(tableGrob(df, theme = ttheme_default(base_size = 7), rows = NULL),
+              row= 1,column = 4,panel_clip = "off")
+
+figure
+```
