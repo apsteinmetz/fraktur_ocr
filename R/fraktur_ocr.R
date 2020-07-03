@@ -29,7 +29,7 @@ tesseract_info()
 ocr_engine = "deu_frak"
 #ocr_engine = "frk"
 #path = "C:/Users/Arthur/Pictures/ControlCenter4/Scan/"
-file_name = "Neu_Schowe_Church_65.jpg"
+file_name = "Neu_Schowe_Church_19b.jpg"
 
 #scan at 300dpi, highest brighness setting
 ocr_lines <- function(file,engine = ocr_engine){
@@ -63,18 +63,18 @@ process_page <- function(file_name){
    print(paste0("Processing image ",file_name))
 
    # # tried imagerExtra for preprocessing. No improvement and slower
-   # page_img1 <- imager::load.image(paste0(path,file_name))  %>%
-   #    grayscale() %>%
-   #    DenoiseDCT(sdn = .01) %>%
-   #    ThresholdAdaptive(0.1, range = c(0,1)) %>%
-   #    cimg2magick()
+    # page_img1 <- imager::load.image(paste0(path,file_name))  %>%
+    #    grayscale() %>%
+    #    DenoiseDCT(sdn = .01) %>%
+    #    ThresholdAdaptive(0.1, range = c(0,1)) %>%
+    #    cimg2magick()
 
 
    page_img <- image_read(paste0(path,file_name)) ; page_img
    # page_img <- image_quantize(page_img,max = 2,colorspace = "gray") ; page_img
-   # page_img <- image_contrast(page_img,sharpen = 100) ; page_img
    # page_img <- image_trim(page_img,fuzz = 50) ; page_img
-   # page_img <- image_modulate(page_img,brightness = 90,saturation = 50); page_img
+   page_img <- image_modulate(page_img,brightness = 90,saturation = 50); page_img
+   page_img <- image_contrast(page_img,sharpen = 100) ; page_img
    page_img <- image_enhance(page_img); page_img
    #page_img <- image_lat(page_img, geometry = '2x2-10%') ; page_img
 
@@ -105,7 +105,7 @@ process_page <- function(file_name){
       # convert "ſ" to s
       mutate(German = str_replace_all(German,"ſ","s")) %>%
       # strip characters that don't ever appear so we know they are false
-      mutate(German = str_remove_all(German,"[\\|\\*<>»;:]")) %>%
+      mutate(German = str_remove_all(German,"[\\|\\*<>«»;:]")) %>%
       mutate(German = ifelse(str_detect(German,"[a-zA-Z]3"),str_replace(German,"3","s"),German)) %>%
       mutate(German = str_squish(German)) %>%
       # mutate(German = str_replace_all(German,"Ginleitung","Einleitung")) %>%

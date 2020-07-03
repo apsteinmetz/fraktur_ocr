@@ -1,16 +1,15 @@
 ---
-output:
-  pdf_document:
-     df_print: kable
-     fig_width: 15
-     fig_height: 7
-     fig_crop: FALSE
+output: 
+   pdf_document:
+      df_print: kable
+classoption: landscape
+geometry: margin=0.25in
 ---
 
-\pdfpagewidth=17in \pdfpageheight=9in
-
 ```{r sample, message=FALSE, warning=FALSE, include=FALSE}
+
 library(knitr)
+library(tidyverse)
 library(kableExtra)
 library(grid)
 library(gridExtra)
@@ -18,26 +17,70 @@ library(magick)
 library(multipanelfigure)
 
 load("../data/ns_church_history.rdata")
-page_img_file <- "../img/Neu_Schowe_Church_02.jpg"
-page_text_de <- NS_Church_History$content[[2]][2]
-page_text_en <- NS_Church_History$content[[2]][3]
-```
 
-```{r echo=FALSE, message=FALSE, warning=FALSE}
+```
+# The History of the Reformed Church in the Parish of Neu-Schowe, 1786-1923
+## by Daniel Gutsohn
+
+Scanned and converted to text using Tesseract OCR and the "deu-frak" Fraktur training set
+
+Translated to English using Google Translate
+
+by Arthur Steinmetz, <apsteinmetz@yahoo.com>, July 2020
+
+This presents the scanned image, text and translation side by side. Note the translation is pretty choppy because there is no human interpretation, just robots.  I present this in the hope that this will help others who might want to do a better job.
+\newpage
+```{r print_cover, echo=FALSE, fig.height=7.5, message=FALSE, warning=FALSE}
+
+page_img_file <- "../img/Neu_Schowe_Church_00.jpg"
 # instantiate
 figure <- multi_panel_figure(
-#   width = unit(15,"inches"),
-#   height = unit(4,"inches"),
-   columns = 4,
-  rows = 1)
+   columns = 1,
+   rows = 1,
+   panel_label_type = "none")
 
 
 figure <- figure %>% 
-   fill_panel(panel = page_img_file,scaling = "stretch",column = c(1,2)) %>% 
-   fill_panel(tableGrob(page_text_de, theme = ttheme_default(base_size = 7)),
-              row= 1,column = 3,panel_clip = "off") %>% 
-   fill_panel(tableGrob(page_text_en, theme = ttheme_default(base_size = 7), rows = NULL),
-              row= 1,column = 4,panel_clip = "off") 
+   fill_panel(panel = page_img_file,scaling="fit")
+cat(paste0("Page ",1))   
+print(figure)
+```
 
-figure
+```{r print_body, echo=FALSE, fig.height=8, fig.width=11, message=FALSE, warning=FALSE}
+
+print_page <- function(n){
+   message(paste("Page",n))
+   page_img_file <- paste0("../img/",NS_Church_History$img_file[n])
+   page_text_de <- NS_Church_History$content[[n]][2]
+   page_text_en <- NS_Church_History$content[[n]][3]
+   # instantiate
+   figure <- multi_panel_figure(
+      columns = 3,
+      rows = 1,
+      panel_label_type = "none",
+      column_spacing = 1)
+   
+   
+   figure <- figure %>% 
+      fill_panel(panel = page_img_file,scaling = "stretch",column = c(1)) %>% 
+      fill_panel(tableGrob(page_text_de,
+                           theme = ttheme_default(base_size = 7,padding = unit(c(1,2),"mm"))
+      ),
+      row= 1,column = 2,panel_clip = "off") %>% 
+      fill_panel(tableGrob(page_text_en, 
+                           theme = ttheme_default(base_size = 7,padding = unit(c(1,2),"mm")),
+                           rows = NULL
+      ),
+      row= 1,column = 3,panel_clip = "off") 
+   
+   # return(bind_cols(rownames_to_column(page_text_de,var="Row"),page_text_en))
+   cat(paste0("Page ",n+1))   
+   print(figure)
+}
+
+
+nothing <- NS_Church_History$page_num %>% 
+   as.numeric() %>% 
+   walk(print_page)
+
 ```

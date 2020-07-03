@@ -1,0 +1,55 @@
+---
+output: 
+   pdf_document:
+classoption: landscape
+geometry: margin=0.25in
+---
+
+
+```{r sample, message=FALSE, warning=FALSE, include=FALSE}
+
+library(knitr)
+library(kableExtra)
+library(grid)
+library(gridExtra)
+library(magick)
+library(multipanelfigure)
+library(ggplot2)
+
+load("../data/ns_church_history.rdata")
+
+```
+
+
+```{r echo=FALSE,results='asis'}
+print_page <- function(page_num){
+   page_img_file <- ggplot(cars,aes(speed)) + geom_histogram()
+   page_text_de <- as.data.frame(cars)
+   page_text_en <- as.data.frame(cars)
+   # instantiate
+   figure <- multi_panel_figure(
+      columns = 3,
+      rows = 1,
+      panel_label_type = "none",
+      column_spacing = 1)
+   
+   
+   figure <- figure %>% 
+      fill_panel(panel = page_img_file,scaling = "stretch",column = c(1)) %>% 
+      fill_panel(tableGrob(page_text_de,
+                           theme = ttheme_default(base_size = 7,padding = unit(c(1,3),"mm"))
+      ),
+      row= 1,column = 2,panel_clip = "off") %>% 
+      fill_panel(tableGrob(page_text_en, 
+                           theme = ttheme_default(base_size = 7,padding = unit(c(1,3),"mm")),
+                           rows = NULL
+      ),
+      row= 1,column = 3,panel_clip = "off") 
+   
+   return(figure)
+}
+
+
+   print_page(n)
+   print_page(n)
+```
