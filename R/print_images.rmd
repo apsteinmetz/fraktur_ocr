@@ -1,0 +1,66 @@
+---
+output: 
+   pdf_document:
+      df_print: kable
+classoption: portrait
+geometry: margin=0.25in
+---
+
+```{r sample, message=FALSE, warning=FALSE, include=FALSE}
+
+library(knitr)
+library(tidyverse)
+library(kableExtra)
+library(grid)
+library(gridExtra)
+library(magick)
+library(multipanelfigure)
+
+load("../data/ns_church_history.rdata")
+
+```
+# The History of the Reformed Church in the Parish of Neu-Schowe, 1786-1923
+## by Daniel Gutsohn
+
+Scanned by Arthur Steinmetz, <apsteinmetz@yahoo.com>, July 2020
+\newpage
+```{r print_cover, echo=FALSE, fig.height=7.5, message=FALSE, warning=FALSE}
+
+page_img_file <- "../img/Neu_Schowe_Church_00.jpg"
+# instantiate
+figure <- multi_panel_figure(
+   columns = 1,
+   rows = 1,
+   panel_label_type = "none")
+
+
+figure <- figure %>% 
+   fill_panel(panel = page_img_file,scaling="fit")
+cat(paste0("Page ",1))   
+print(figure)
+```
+
+```{r print_body, echo=FALSE, fig.height=11, fig.width=8, message=FALSE, warning=FALSE}
+
+print_page <- function(n){
+   message(paste("Page",n))
+   page_img_file <- paste0("../img/",NS_Church_History$img_file[n])
+   # instantiate
+   figure <- multi_panel_figure(
+      columns = 1,
+      rows = 1,
+      panel_label_type = "none")
+   
+   
+   figure <- figure %>% 
+      fill_panel(panel = page_img_file,scaling = "fit") 
+#   cat(paste0("Page ",n+1))   
+   print(figure)
+}
+
+
+nothing <- NS_Church_History$page_num %>% 
+   as.numeric() %>% 
+   walk(print_page)
+
+```
