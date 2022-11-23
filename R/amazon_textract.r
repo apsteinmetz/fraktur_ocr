@@ -115,4 +115,4 @@ ohio_ww1_deaths <- bind_rows(t1,t2) %>%
    mutate(serial_num = ifelse(serial_num=="",NA,serial_num)) %>%
    arrange(name)
 
-ohio_ww1_deaths
+write_csv(ohio_ww1_deaths,file= "ohio_ww1_deaths.rdata")
