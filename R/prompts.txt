@@ -1,0 +1,166 @@
+# You are an experienced R coder who uses the tidyverse.
+
+# I have a structured text file of genealogy data.  Help me turn it into a data
+# frame. The text file consists of person records containing the person ID, and
+# and life events.
+
+# The events are marked with a symbol followed by a date in the form dd.mm.yyyy
+# or yyyy followed by text with event details or just the event details with no
+# date.  The text between the date and the next event is the event details.
+# Store this as a text value with the event label as the column name.
+
+# The person record may contain one ore more nested person records for children
+# or grandchildren in numbered lists.  The nested records should become list
+# columns in the parent data frame.  Since a person may have multiple children
+# and grandchildren with life events, use recursion to parse the nested person
+# records. the nested records should be lists of data frames in the main person
+# row.
+
+
+# This regex marks the start of a new person_id:
+"<\\d+>"     # ID
+
+# Here are the symbols which mark events in regex form and the column labels:
+"\\*",        # birth
+"~",         # baptisim
+"oo",       # marraige
+"†",         # death
+"b\\.",       # burial
+
+
+# Here is a sample main record from the text file consisting of multiple lines:
+
+<7>
+   ALBUS Christian
+*um 1842
+oo 23.04.1865 Neu Werbas
+GEYER Magdalena ev.
+*um 1845 † 10.09.1873 AS b. 11.09.1873 (†mit 28J)
+
+1. Albus Magdalena * 22.01.1867 Neu Werbas
+1.oo 22.08.1886 NS Hobler Michael > 1579
+2.oo 23.03.1893 NS Geiss Josef > 748
+2. Albus Katharina *um 1871 Nadalj
+oo 22.02.1888 NS Haller Heinrich Georg > 1139
+3. Albus Jakob ev. * 03.09.1873 AS † 18.09.1873 Neu Werbas b. 19.09.1873
+~ 06.09.1873 TP: Adam Schmidt, Sofia Werle
+nach ev. Matrikel Werbas (†mit 10T als Johanna)
+2.o‐o
+WOLF Christina * 23.04.1853 NS > 4068.2
+Eltern: Wolf Jakob, Kreter Katharina
+lebt 1885 in Nadalj
+
+4. Wolf Christina * 16.11.1874 AS
+oo Herzberger Georg > 1450
+5. Wolf Christian * 15.11.1885 AS
+oo 28.07.1907 AS Geist Ethel > 4090
+
+
+
+# Events that end with a "<" number followed by a period indicate this person
+# is a child of someone with their own person ID and the number links to a
+# another main record for this person's parent where the number before the
+# period is the person ID of the parent and after the period links to the
+# ordinal number of this  child in the parent's record.
+
+# Events that end with ">" followed by a number indicate this person is
+# a child who also has a main record with that number being their person ID.
+
+
+"(?<=[:space:]|^)([<@#][0-9]+|NAME|\\*|~|oo|†|b\\.)(?=[:space:]|$)")[[1]]
+
+
+Verzeichnis der Abkürzungen
+Neu Schowe NS
+Evangelisch ev
+geboren: *
+   getauft: ~
+   Taufpaten : TP
+Heirat: oo
+Trauzeugen: TZ
+Sv. / Tv. Sohn / Tochter von
+Wohnort Neu Schowe WoNS
+Alt Schowe AS
+Reformiert ref
+gestorben: †
+beerdigt: b.
+gefallen im 1.Weltkrieg: gef.1.WK
+gefallen im 2.Weltkrieg: gef.2.WK
+Partmer unbekannt b.z.w.
+Partnergemeinschaft o‐o
+Wohnort Alt Schowe WoAS
+Jahr..Monat..Tag..Woche J.. M.. T.. W
+
+
+field names and symbols that signal the start of a tokens
+   field name, token_symbol(s),
+   birth_date, "*"
+   baptised_date, "~"
+   godparents_names, "TP"
+   marriage_witness_names, "TZ"
+   marraige, "oo" followed by a date, location and spouse name
+   death_date, "†"
+   buried_date, "b."
+   pointer to child record of parent, "<" at end of line
+   pointer to main record of chile, ">" at end of child line
+   ID, "<" followed by a number, followed by a ">"
+
+
+
+field names where the symbol is followed by one or more comma-separated names
+   field name, token_symbol(s),
+   godparents_names, "TP"
+   marriage_witness_names, "TZ"
+   child_name, numeral followed by a period except numeral followed by a period followed by "oo"
+   name, in the form LASTNAME firstname on the line following ID
+
+field names where the symbol is the field value
+   field name, token_symbol(s),
+   village_code, "NS" or "AS" or "WoNS"
+   religion_code, "ev" or "rf" or "ref"
+   war_casulaty, "gef.1.WK" or "gef.2.WK"
+   spouse_notes, "b.z.w." or "o‐o"
+   age_at_death ,starting with "(†mit" and ending with ")"
+
+
+Treat these symbols as delimters that signal the start of an event record
+      "\\*",        # birth_date
+      "~",         # baptised_date
+      "oo",       # marraige (special case handled below)
+      "†",         # death_date
+      "b\\.",       # buried_date
+
+
+      "<\\d+>"     # ID - but need special extraction
+
+
+Treat these symbols as delimters that signal the start of a toke
+      "TP",        # godparents_names
+      "TZ",        # marriage_witness_names
+
+Treat these tokens as codes that are part of the outer token
+"NS|AS|WoNS", # village_code
+"ev\\.|rf\\.|ref",   # religion_code
+"gef\\.1\\.WK|gef\\.2\\.WK", # war_casulaty
+"b\\.z\\.w\\.|o‐o",      # spouse_notes
+"\\(\†mit.*\\)"  # age_at_death
+
+Parse each line of record separately and identify any line that starts with
+a number followed by a period as a new sub-record for a child, unless the line starts with
+a number followed by a period followed by "oo", then treat the following tokens as a marriage record
+
+
+field_symbols <- c(
+   "\\*",        # birth_date
+   "~",         # baptised_date
+   "TP",        # godparents_names
+   "TZ",        # marriage_witness_names
+   "oo",       # marraige (special case handled below)
+   "†",         # death_date
+   "\\(†mit"  # age_at_death  - keep escaping here since it includes parentheses
+   "b\\.",       # buried_date
+   "<\\d+>", # ID - but need special extraction
+   " \\d\\. ", # start of child record (for recursive parsing)
+   # "(<|>) \\d+(.\\d+)?$" # reference to main record of this person
+   "(<|>)" # reference to main record of this person
+)
