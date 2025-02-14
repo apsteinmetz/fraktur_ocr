@@ -1,42 +1,10 @@
-# test genai api
+# parse family records
 library(tidyverse)
-library(httr2)
-library(jsonlite)
 
-file_path <- "data/persons_sm.txt"
-# Set up authentication (this is crucial and more complexsee below)
-# Assume you've obtained a valid API key or access token
-
-api_key <- Sys.getenv("GOOGLE_AI")
-model_name <- "gemini-1.5-pro" # or another available model
-# model_name <- "gemini-2.0-flash-001"
-model_url <- paste0("https://generativelanguage.googleapis.com/v1beta/models/",
-              model_name,":generateContent?key=",
-              api_key)
-
-context_prompt <- paste("You are a genealogy expert. Analyze the following text and extract genealogical information.",
-                        "Identify individualstheir relationshipsbirth dates (or approximate years)death dates,",
-                        "marriage datesand locations. If information is missing infer it if possible. The text file",
-                        "is in German.",
-
-                        "Format the extracted information into a GEDCOM 5.5.1 format.
-                        If no person ID number is detected Create the new INDI tag starting with id number 10000",
-                        "Recognize that many standard GEDCOM tags are already in the text",
-                        "Create a 'lineage-linked' GEDCOM output.",
-                        "Create a FAM record for each marriage",
-                        "Use the FAMC tag to link children individuals to FAM record.",
-                        "Use the FAMS tag to spouse or parent individuals to FAM record.",
-                        "The MARR,CHIL,HUSB and WIFE tags can only be part of a FAM record.",
-                        "Omit the GEDCOM header and footer.",
-                        "Omit the explanation text and only return the GEDCOM data.",
-                        "The cross-references refer to other individual person IDs which my not be in the same file.",
-                        "Here is the first record.",
-)
-
-continue_prompt <- ("Here's some more text to convert to GEDCOM format: ")
+file_path <- "data/persons.txt"
 
 sample_text_to_parse <-
-"<7>
+"@I7@
 ALBUS Christian
 *um 1842
 oo 23.04.1865 Neu Werbas
@@ -62,26 +30,16 @@ oo Herzberger Georg > 1450
 oo 28.07.1907 AS Geist Ethel > 4090"
 
 
-to_JSON_body <- function(prompt = "You are a poet. Write a limerick about fishing."){
-   toJSON(list(
-      contents = list(list(parts = list(list(text = prompt))))
-   ),
-   auto_unbox = TRUE)
-}
 
-to_body <- function(prompt = "You are a poet. Write a limerick about fishing."){
-   list(
-      contents = list(list(parts = list(list(text = prompt))))
-   )
-}
-
-clean_text <- function(text_vec) {
+tag_text <- function(text_vec) {
    # Replace special characters
-   text_vec <- gsub("<(\\d+)>","@I\\1@ INDI",text_vec)
+   # text_vec <- gsub("@I(\\d+)@","@I\\1@ INDI\nNOTE ID=\\1",text_vec)
+   # text_vec <- gsub("<(\\d+)>","NOTE ID\\1",text_vec)
+   text_vec <- gsub("INDI\n","",text_vec)
    text_vec <- gsub("o‐o"," Unknown_spouse ",text_vec)
-   text_vec <- gsub("\\*"," BIRT ",text_vec)
+   text_vec <- gsub("\\*","BIRT ",text_vec)
    text_vec <- gsub(" um "," ABT ",text_vec)
-   text_vec <- gsub("oo"," MARR ",text_vec)
+   text_vec <- gsub("oo","MARR ",text_vec)
    text_vec <- gsub(" TZ:"," WITN: ",text_vec)
    text_vec <- gsub("†mit","aged ",text_vec)
    text_vec <- gsub("([0-9]{1,2})J","\\1 years",text_vec)
@@ -89,8 +47,9 @@ clean_text <- function(text_vec) {
    text_vec <- gsub("([0-9]{1,2})T","\\1 days",text_vec)
    text_vec <- gsub("†"," DEAT ",text_vec)
    text_vec <- gsub("b. "," BURI ",text_vec)
-   text_vec <- gsub(" AS"," Alt Schowe ",text_vec)
-   text_vec <- gsub(" NS"," Neu Schowe ",text_vec)
+   text_vec <- gsub(" AS"," PLAC Alt Schowe ",text_vec)
+   text_vec <- gsub(" NS"," PLAC Neu Schowe ",text_vec)
+   text_vec <- gsub("( Lager [a-zA-Z]+)"," PLAC \\1",text_vec)
    text_vec <- gsub(" ev\\."," RELI Evangelical ",text_vec)
    text_vec <- gsub(" ref\\."," RELI Reformed ",text_vec)
    text_vec <- gsub(" kath\\."," RELI Catholic ",text_vec)
@@ -98,65 +57,126 @@ clean_text <- function(text_vec) {
    text_vec <- gsub(" TP:"," GODP: ",text_vec)
    text_vec <- gsub("~"," BAPM ",text_vec)
    text_vec <- gsub("# ","NOTE ",text_vec)
-   text_vec <- gsub("[<>] (\\d{1,4}\\.\\d{1,2})"," link to @\\1@ ",text_vec)
-   text_vec <- gsub("[<>] (\\d{1,4})"," link to @\\1@ ",text_vec)
+   text_vec <- gsub("[<>] (\\d{1,4}\\.\\d{1,2})"," link to @I\\1@ ",text_vec)
+   text_vec <- gsub("[<>] (\\d{1,4})"," link to @I\\1@ ",text_vec)
    return (text_vec)
 }
 
-cat(clean_text(text_to_parse))
+line_break_tags <- c("BIRT","ABT","MARR","DEAT","BURI","PLAC","RELI","WITN","GODP","BAPM","NOTE")
 
-process_chunk <- function(chunk_file_name, add_context = FALSE) {
-   # Read the text from the file
-   text_to_parse <- read_lines(chunk_file_name) |>
-      clean_text()
-   # Create the request body
-   if (add_context) {
-      body <- to_body(paste(context_prompt, paste(text_to_parse, collapse = " ")))
-   } else {
-      body <- to_body(paste(continue_prompt, paste(text_to_parse, collapse = " ")))
+# insert new item in character vector at line break tags
+insert_line_breaks <- function(text_vec) {
+   for (tag in line_break_tags) {
+      text_vec <- gsub(paste0(tag," "),paste0("\n",tag," "),text_vec)
    }
-   # Create the request
-   req <- request(base_url = model_url) |>
-      req_body_json(body) |>
-      req_timeout(120) |>
-      req_progress()
-
-   if (DEBUG) {
-      print(req)
-      req_dry_run(req)
-      # cat(text_to_parse)
-      return(NULL)
-   }
-   # this won't be executed if DEBUG is TRUE
-   # Make the request
-   print(paste("Submitting request",chunk_file_name))
-   response <- req |> req_perform()
-   # Check for errors
-   if (resp_status_desc(response) != "OK") {
-      generated_text <- NULL
-      print(paste("API request failed:", resp_status(response)))
-   } else {
-      # Parse the response using httr2 functions
-      result <- response |> resp_body_json()
-
-      # Extract the generated text
-      generated_text <- result$candidates[[1]]$content$parts[[1]]$text
-      cat(generated_text)
-      cat("\n")
-   }
-
-   return(generated_text)
+   return(text_vec)
 }
 
-DEBUG <- FALSE
-for (n in 11:20) {
-   chunk_char <- sprintf("%04d",n)
-   chunk_file_name <- paste0("data/chunks/record_",chunk_char,".txt")
-   # Process the chunk. if the chunk is the first one, add the context prompt
-   ged_record <- process_chunk(chunk_file_name,{n==1})
-   if (!is.null(ged_record)) {
-      # write the GEDCOM record to a file
-      writeLines(ged_record,paste0("data/gedcom/ged_record_",chunk_char,".ged"))
+
+
+#' Function to read the file and extract records
+#'
+#' @param file_path Path to the text file.
+#' @return A list of character vectors, each vector representing a record.
+read_records <- function(file_path) {
+   # Read the file line by line
+   lines_raw <- readLines(file_path, encoding = "UTF-8")  # Handle character encoding
+   # get rid of surname block headers
+   lines <- vector()
+   i = 1
+   while (i <= length(lines_raw)) {
+      cat(lines_raw[i])
+      if (grepl("^[A-Z]+$", lines_raw[i])) {
+         i <- i +2 #skip this and the next line
+      } else {
+         lines <- c(lines, lines_raw[i])
+         cat(lines[i],"\n")
+         i <- i + 1
+      }
+
    }
+   # replace '<num>' with '@I<num>@'
+   lines <- gsub("<(\\d+)>", "@I\\1@ INDI", lines)
+   # remove empty lines
+   lines <- lines[!grepl("^\\s*$", lines)]
+
+   # Identify record start lines (lines starting with "<")
+   record_start_indices <- grep("^@", lines)
+
+   # Handle edge case of no records being found
+   if(length(record_start_indices) == 0){
+      warning("No records found in the file.")
+      return(list())
+   }
+
+   # Extract records.  The person's name is on the line immediately after the record start.
+   records <- list()
+   for (i in seq_along(record_start_indices)) {
+      start_index <- record_start_indices[i]
+      end_index <- ifelse(i < length(record_start_indices), record_start_indices[i + 1] - 1, length(lines))
+
+      # Include the person's name line with the record
+      record_lines <- lines[start_index:end_index]
+      if(start_index +1 <= length(lines)){
+         if((start_index+1) %in% record_start_indices){ #check if the next line is a new record before adding it.
+            record_lines <- lines[start_index:end_index]
+         } else {
+            record_lines <- lines[start_index:(end_index)]
+         }
+
+      }
+      records[[i]] <- record_lines # List of character vectors, each vector being a record
+   }
+
+   return(records)
 }
 
+parse_name <- function(records) {
+   # Extract the person's name from the first line of the record
+   records <- records |>
+      separate_wider_delim(cols = record,
+                           delim = regex(" |\\n"),
+                           names = c("last","first","record"),
+                           too_many = "merge",
+                           too_few = "align_start") |>
+      mutate(name = paste0(first," /",last,"/"),.before = "record") |>
+      select(-last,-first)
+   return(records)
+
+}
+parse_children <- function(records) {
+   # Extract the person's name from the first line of the record
+   records <- records |>
+      separate_wider_delim(cols = record,
+                           delim = regex("\\d+\\. "),
+                           names = c("record",
+                                     # create columns for up to 20 children
+                                     "CHIL1","CHIL2","CHIL3","CHIL4","CHIL5",
+                                     "CHIL6","CHIL7","CHIL8","CHIL9","CHIL10",
+                                     "CHIL11","CHIL12","CHIL13","CHIL14","CHIL15",
+                                     "CHIL16","CHIL17","CHIL18","CHIL19","CHIL20"),
+                           too_many = "merge",
+                           too_few = "align_start")
+   return(records)
+
+}
+
+file_path <- "data/persons.txt" # Set file path
+all_recs <- read_lines(file_path)
+#raw_data <- read_records(file_path)
+#save(raw_data,file = "data/raw_data.RData")
+load("data/raw_data.RData")
+# convert to data frame
+records <- map(raw_data,str_flatten,collapse = "\n") %>%
+   enframe(name = NULL,value = "record") |>
+   unnest(record) |>
+   separate(record,c("ID","record"),sep = " ",extra = "merge") |>
+   mutate(ID = as.integer(str_remove_all(ID,"\\D"))) |>
+   mutate(record = tag_text(record)) |>
+   filter(!str_detect(record,"nach Korrektur unbesetzt"))
+
+records <- records |>
+   parse_name()
+
+records <- records |>
+   parse_children()

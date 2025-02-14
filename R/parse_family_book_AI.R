@@ -20,13 +20,14 @@ context_prompt <- paste("You are a genealogy expert. Analyze the following text 
                         "is in German.",
 
                         "Format the extracted information into a GEDCOM 5.5.1 format.
-                        If no person ID is detected Use inferred ID's starting with id number 10000",
-
+                        If no person ID number is detected Create the new INDI tag starting with id number 10000",
+                        "Recognize that many standard GEDCOM tags are already in the text",
                         "Create a 'lineage-linked' GEDCOM output.",
                         "Create a FAM record for each marriage",
                         "Use the FAMC tag to link children individuals to FAM record.",
                         "Use the FAMS tag to spouse or parent individuals to FAM record.",
                         "The MARR,CHIL,HUSB and WIFE tags can only be part of a FAM record.",
+                        "Omit the GEDCOM header and footer.",
                         "Omit the explanation text and only return the GEDCOM data.",
                         "The cross-references refer to other individual person IDs which my not be in the same file.",
                         "Here is the first record.",
@@ -35,7 +36,7 @@ context_prompt <- paste("You are a genealogy expert. Analyze the following text 
 continue_prompt <- ("Here's some more text to convert to GEDCOM format: ")
 
 sample_text_to_parse <-
-"<7>
+"@I7@
 ALBUS Christian
 *um 1842
 oo 23.04.1865 Neu Werbas
@@ -76,7 +77,8 @@ to_body <- function(prompt = "You are a poet. Write a limerick about fishing."){
 
 clean_text <- function(text_vec) {
    # Replace special characters
-   text_vec <- gsub("<(\\d+)>","@I\\1@ INDI",text_vec)
+   text_vec <- gsub("@I(\\d+)@","@I\\1@ INDI\nNOTE ID=\\1",text_vec)
+   # text_vec <- gsub("<(\\d+)>","NOTE ID\\1",text_vec)
    text_vec <- gsub("o‐o"," Unknown_spouse ",text_vec)
    text_vec <- gsub("\\*"," BIRT ",text_vec)
    text_vec <- gsub(" um "," ABT ",text_vec)
@@ -88,26 +90,76 @@ clean_text <- function(text_vec) {
    text_vec <- gsub("([0-9]{1,2})T","\\1 days",text_vec)
    text_vec <- gsub("†"," DEAT ",text_vec)
    text_vec <- gsub("b. "," BURI ",text_vec)
-   text_vec <- gsub(" AS"," Alt Schowe ",text_vec)
-   text_vec <- gsub(" NS"," Neu Schowe ",text_vec)
-   text_vec <- gsub(" ev\\."," Evangelical ",text_vec)
-   text_vec <- gsub(" ref\\."," Reformed ",text_vec)
-   text_vec <- gsub(" kath\\."," Catholic ",text_vec)
+   text_vec <- gsub(" AS"," PLAC Alt Schowe ",text_vec)
+   text_vec <- gsub(" NS"," PLAC Neu Schowe ",text_vec)
+   text_vec <- gsub("( Lager [a-zA-Z]+)"," PLAC \\1",text_vec)
+   text_vec <- gsub(" ev\\."," RELI Evangelical ",text_vec)
+   text_vec <- gsub(" ref\\."," RELI Reformed ",text_vec)
+   text_vec <- gsub(" kath\\."," RELI Catholic ",text_vec)
    text_vec <- gsub(" TZ:"," WITN: ",text_vec)
    text_vec <- gsub(" TP:"," GODP: ",text_vec)
    text_vec <- gsub("~"," BAPM ",text_vec)
    text_vec <- gsub("# ","NOTE ",text_vec)
-   text_vec <- gsub("[<>] (\\d{1,4}\\.\\d{1,2})"," link to @\\1@ ",text_vec)
-   text_vec <- gsub("[<>] (\\d{1,4})"," link to @\\1@ ",text_vec)
+   text_vec <- gsub("[<>] (\\d{1,4}\\.\\d{1,2})"," link to @I\\1@ ",text_vec)
+   text_vec <- gsub("[<>] (\\d{1,4})"," link to @I\\1@ ",text_vec)
    return (text_vec)
 }
 
 cat(clean_text(text_to_parse))
 
-process_chunk <- function(chunk_file_name, add_context = FALSE) {
+# function to take a series of lines and return only the lines
+# between the start of the chunk and end of the chunk
+to_just_gedcom <- function(text){
+   sub(".*```gedcom\\n(.*?)```.*", "\\1", text, perl = FALSE)
+}
+
+# submit to api with exponential backoff if rate limited
+make_request <- function(req, max_retries=5, initial_delay=1, max_delay=60) {
+   for (attempt in 1:max_retries) {
+      tryCatch({
+         response <- req |> req_perform()
+         if (resp_status(response) == 429) {
+            # Rate limited
+            cat(paste("Attempt", attempt, "failed: Rate limited (429). Retrying...\n"))
+            delay <- min(initial_delay * (2^(attempt - 1)), max_delay) # Exponential backoff
+            Sys.sleep(delay)
+         } else if (resp_status(response) >= 200 && resp_status(response) < 300) {
+            # Success!
+            cat("Request successful!\n")
+            break  # Exit the loop
+         } else {
+            # Other error
+            stop(paste("Request failed with status:", resp_status(response), "\nBody:", resp_body_string(response)))
+         }
+      }, error = function(e) {
+         cat(paste("Attempt", attempt, "failed with error:", e$message, "\n"))
+         if (attempt == max_retries) {
+            stop("Max retries reached.")
+         }
+         delay <- min(initial_delay * (2^(attempt - 1)), max_delay)
+         Sys.sleep(delay)
+      })
+   }
+   return(response)
+}
+
+process_multi_chunk <- function(record_nums, add_context = FALSE) {
+   if (length(record_nums) == 0) {
+      stop("No record numbers provided.")
+   }
+   if (!is.integer(record_nums)) {
+      stop("Expecting a vector of integers. Sorry.")
+   }
    # Read the text from the file
-   text_to_parse <- read_lines(chunk_file_name) |>
-      clean_text()
+   text_to_parse <- ""
+   for (n in record_nums){
+      chunk_file_name <- paste0("data/chunks/record_",sprintf("%04d",n), ".txt")
+      print(paste("Reading",chunk_file_name))
+      single_record <- read_lines(chunk_file_name) |>
+         clean_text() |>
+         paste(collapse = " ")
+      text_to_parse <- paste(text_to_parse,single_record,"\n")
+   }
    # Create the request body
    if (add_context) {
       body <- to_body(paste(context_prompt, paste(text_to_parse, collapse = " ")))
@@ -121,39 +173,41 @@ process_chunk <- function(chunk_file_name, add_context = FALSE) {
       req_progress()
 
    if (DEBUG) {
+      paste("RECORDS:",paste(record_nums,collapse = " "))
       print(req)
       req_dry_run(req)
-      # cat(text_to_parse)
+      cat(text_to_parse)
+      print(record_nums)
       return(NULL)
    }
    # this won't be executed if DEBUG is TRUE
    # Make the request
-   response <- req |> req_perform()
-   # Check for errors
-   if (resp_status_desc(response) != "OK") {
-      generated_text <- NULL
-      print(paste("API request failed:", resp_status(response)))
-   } else {
-      # Parse the response using httr2 functions
-      result <- response |> resp_body_json()
-
-      # Extract the generated text
-      generated_text <- result$candidates[[1]]$content$parts[[1]]$text
-      cat(generated_text)
-   }
+   print(paste("Submitting request for records",
+               paste(record_nums,collapse = " ")))
+   response <-make_request(req)
+   # Success!
+   cat("Request successful!\n")
+   generated_text <- resp_body_json(response)$candidates[[1]]$content$parts[[1]]$text |>
+      to_just_gedcom()
 
    return(generated_text)
 }
 
 DEBUG <- FALSE
-for (n in 1:2) {
-   chunk_char <- sprintf("%04d",n)
-   chunk_file_name <- paste0("data/chunks/record_",chunk_char,".txt")
+start_index = 403
+end_index = 4196
+batch_size = 3
+# process records in groups of batch_size
+for (first_index in seq(start_index,end_index,by=batch_size)) {
+   record_nums <- first_index:(first_index+batch_size-1)
    # Process the chunk. if the chunk is the first one, add the context prompt
-   ged_record <- process_chunk(chunk_file_name,{n==1})
+   ged_record <- process_multi_chunk(record_nums,{start_index==1})
+   cat(ged_record)
    if (!is.null(ged_record)) {
       # write the GEDCOM record to a file
-      writeLines(ged_recordpaste0("data/gedcom/ged_record_",chunk_char,".ged"))
+      outfile <- paste0("data/gedcom/ged_record_",sprintf("%04d",first_index),".ged")
+      print(outfile)
+      writeLines(ged_record,outfile)
    }
 }
 
