@@ -40,11 +40,12 @@ tag_text <- function(text_vec) {
    text_vec <- gsub("\\*","BIRT ",text_vec)
    text_vec <- gsub(" um "," ABT ",text_vec)
    text_vec <- gsub("oo","MARR ",text_vec)
-   text_vec <- gsub(" TZ:"," WITN: ",text_vec)
-   text_vec <- gsub("†mit","aged ",text_vec)
-   text_vec <- gsub("([0-9]{1,2})J","\\1 years",text_vec)
-   text_vec <- gsub("([0-9]{1,2})M","\\1 months",text_vec)
-   text_vec <- gsub("([0-9]{1,2})T","\\1 days",text_vec)
+   text_vec <- gsub(" TZ:"," WITN ",text_vec)
+   text_vec <- gsub("\\(†mit (.*?)\\)", "AGE \\1 ", text_vec)
+   # text_vec <- gsub("\\(†mit(.+)\\)","AGE \\1 ",text_vec)
+   text_vec <- gsub("([0-9]{1,2})J","\\1 years ",text_vec)
+   text_vec <- gsub("([0-9]{1,2})M","\\1 months ",text_vec)
+   text_vec <- gsub("([0-9]{1,2})T","\\1 days ",text_vec)
    text_vec <- gsub("†"," DEAT ",text_vec)
    text_vec <- gsub("b. "," BURI ",text_vec)
    text_vec <- gsub(" AS"," PLAC Alt Schowe ",text_vec)
@@ -53,16 +54,17 @@ tag_text <- function(text_vec) {
    text_vec <- gsub(" ev\\."," RELI Evangelical ",text_vec)
    text_vec <- gsub(" ref\\."," RELI Reformed ",text_vec)
    text_vec <- gsub(" kath\\."," RELI Catholic ",text_vec)
-   text_vec <- gsub(" TZ:"," WITN: ",text_vec)
-   text_vec <- gsub(" TP:"," GODP: ",text_vec)
+   text_vec <- gsub(" TZ:"," WITN ",text_vec)
+   text_vec <- gsub(" TP:"," GODP ",text_vec)
    text_vec <- gsub("~"," BAPM ",text_vec)
    text_vec <- gsub("# ","NOTE ",text_vec)
-   text_vec <- gsub("[<>] (\\d{1,4}\\.\\d{1,2})"," link to @I\\1@ ",text_vec)
-   text_vec <- gsub("[<>] (\\d{1,4})"," link to @I\\1@ ",text_vec)
+   text_vec <- gsub("[<>] (\\d{1,4}\\.\\d{1,2})"," XREF \\1 ",text_vec)
+   text_vec <- gsub("[<>] (\\d{1,4})"," XREF \\1 ",text_vec)
    return (text_vec)
 }
 
-line_break_tags <- c("BIRT","ABT","MARR","DEAT","BURI","PLAC","RELI","WITN","GODP","BAPM","NOTE")
+break_tags <- c("XREF","BIRT","MARR","DEAT","BURI","PLAC","RELI","WITN","GODP","BAPM","NOTE")
+break_sub_tags <- c("WITN","GODP","AGE","PLAC")
 
 # insert new item in character vector at line break tags
 insert_line_breaks <- function(text_vec) {
@@ -131,43 +133,101 @@ read_records <- function(file_path) {
    return(records)
 }
 
-parse_name <- function(records) {
+extract_name <- Vectorize(function(text, type = c("raw", "formatted", "surname")) {
+   # Split the text into words
+   words <- str_split(text, "\\s+")[[1]]
+   # Check if there is a third word and if it's a lowercase alphabetic string
+   if (length(words) >= 3 && grepl("^[A-Z][a-z]+$", words[3])) {
+      # Append the third word if it qualifies
+      name_vec <- c(words[1], c(words[2], words[3]))
+   } else {
+      name_vec <- c(words[1], words[2])
+   }
+   name <- switch(
+      type,
+      raw = paste(name_vec, collapse = " "),
+      formatted = paste0(paste0(name_vec[2:length(name_vec)], collapse = " "),
+                         " /", name_vec[1], "/"),
+      surname = words[1],
+      stop("Invalid type specified")
+   )
+   return(name)
+})
+
+extract_date <- function(text, tag,type = c("raw","posix","gedcom")) {
+      # Regular expression to match the tag word followed by a date in the format dd.mm.yyyy
+   myregex <- paste0(tag, "\\s+(\\d{2}\\.\\d{2}\\.\\d{4})|",
+                     tag, "\\s+(ABT \\d{4})")
+
+   matches <- str_extract(text, myregex)
+   if (is.na(matches)) {return(NA)} # tag not found
+   if (length(matches[[1]]) > 0) {
+      date <- str_replace(matches[[1]][1], paste0(tag, "\\s+"), "")
+      date <- switch(type, raw = date,
+                     posix = if (grepl("ABT", date)) {
+                        # if posix is selected and the date is approximate use jan 1
+                        as.Date(paste0(sub("ABT (\\d{4})", "\\1", date), "-", "01-01"))}
+                     else{ as.Date(date, format = "%d.%m.%Y") },
+                     gedcom = paste0(tag, "\n", date, "\n")
+      )
+
+   } else {date <- NA}
+   return(date)
+}
+
+extract_date_v <- Vectorize(extract_date)
+
+make_name_col <- function(records) {
    # Extract the person's name from the first line of the record
-   records <- records |>
-      separate_wider_delim(cols = record,
-                           delim = regex(" |\\n"),
-                           names = c("last","first","record"),
-                           too_many = "merge",
-                           too_few = "align_start") |>
-      mutate(name = paste0(first," /",last,"/"),.before = "record") |>
-      select(-last,-first)
-   return(records)
+   name_records <- records |>
+      mutate(surname = extract_name(record,type="surname"),.before = "record") |>
+      mutate(name = extract_name(record,type = "formatted"),.before = "record") |>
+      # remove name string from record
+      mutate(record = str_remove(record,extract_name(record,type = "raw")))
+   return(name_records)
 
 }
-parse_children <- function(records) {
+make_child_col <- function(records) {
    # Extract the person's name from the first line of the record
-   records <- records |>
+   child_records <- records |>
       separate_wider_delim(cols = record,
                            delim = regex("\\d+\\. "),
                            names = c("record",
                                      # create columns for up to 20 children
-                                     "CHIL1","CHIL2","CHIL3","CHIL4","CHIL5",
-                                     "CHIL6","CHIL7","CHIL8","CHIL9","CHIL10",
-                                     "CHIL11","CHIL12","CHIL13","CHIL14","CHIL15",
-                                     "CHIL16","CHIL17","CHIL18","CHIL19","CHIL20"),
+                                     "FAM1","FAM2","FAM3","FAM4","FAM5",
+                                     "FAM6","FAM7","FAM8","FAM9","FAM10",
+                                     "FAM11","FAM12","FAM13","FAM14","FAM15",
+                                     "FAM16","FAM17","FAM18","FAM19","FAM20"),
                            too_many = "merge",
                            too_few = "align_start")
-   return(records)
-
+   return(child_records)
 }
 
-file_path <- "data/persons.txt" # Set file path
-all_recs <- read_lines(file_path)
+make_spouse_col <- function(records) {
+   # Extract spouse sub-record from MARR tag
+   spouse_records <- records |>
+      separate_wider_delim(cols = record,
+                           delim = regex("MARR"),
+                           names = c("record","FAM0"),
+                           too_many = "merge",
+                           too_few = "align_start")
+   return(spouse_records)
+}
+
+make_dates_col <- function(records) {
+   # add columns for birth and death date of main person
+   date_records <- records |>
+      mutate(birth = as.Date(extract_date_v(record,"BIRT",type = "posix")),.before = "record") |>
+      mutate(death = as.Date(extract_date_v(record,"DEAT",type = "posix")),.before = "record")
+ return(date_records)
+}
+# file_path <- "data/persons.txt" # Set file path
+# all_recs <- read_lines(file_path)
 #raw_data <- read_records(file_path)
 #save(raw_data,file = "data/raw_data.RData")
 load("data/raw_data.RData")
 # convert to data frame
-records <- map(raw_data,str_flatten,collapse = "\n") %>%
+records_base <- map(raw_data,str_flatten,collapse = "\n") %>%
    enframe(name = NULL,value = "record") |>
    unnest(record) |>
    separate(record,c("ID","record"),sep = " ",extra = "merge") |>
@@ -175,8 +235,26 @@ records <- map(raw_data,str_flatten,collapse = "\n") %>%
    mutate(record = tag_text(record)) |>
    filter(!str_detect(record,"nach Korrektur unbesetzt"))
 
-records <- records |>
-   parse_name()
+records <- records_base |>
+   make_name_col() |>
+   make_child_col() |>
+   make_spouse_col() |>
+   pivot_longer(cols = starts_with("FAM"),
+                names_to = "relationship",
+                values_to = "person") |>
+    filter(!is.na(person)) |>
+    nest(relatives = c(relationship,person)) |>
+   identity()
+records
 
 records <- records |>
-   parse_children()
+   make_dates_col()
+
+
+# analyze the records
+# compute lifespan
+records <- records |>
+   filter(!is.na(birth),!is.na(death)) |>
+   mutate(lifespan = (death - birth)/365.25)
+
+
