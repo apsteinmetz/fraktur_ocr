@@ -1,70 +1,197 @@
 # analyze family book
+library(tidyverse)
+# Load 'showtext'
+library(showtext)
 
+# Automatically use 'showtext' to render text
+showtext_auto()
+
+# Add Google font 'Roboto'
+font_add_google("UnifrakturCook", "fraktur",regular.wt = 700, bold.wt = 700)
+
+
+source("r/util_geom_vertical_band.R")
 # analyze the records
 # compute lifespan
-records <- records |>
-   filter(!is.na(birth),!is.na(death)) |>
-   mutate(lifespan = (death - birth)/365.25)
+age_records <- records |>
+   # filter out records with "auswander" as a string in the record column
+   # filter(str_detect(record,"Auswanderer")) |>
+   mutate(emigrant = str_detect(record,"Auswanderer")) |>
+   select(name,birth,death,emigrant) |>
+   mutate(lifespan = as.numeric(death - birth)/365.25)
+
 
 # plot lifespan vs. birth year
-ggplot(records,aes(x = birth,y = lifespan)) +
-   geom_point() +
-   geom_smooth(method = "lm",se = FALSE) +
-   labs(title = "Lifespan vs. Birth Year",
-        x = "Birth Year",
-        y = "Lifespan (years)") +
-   theme_minimal()
-# plot histogram of birth year
-ggplot(records,aes(x = birth)) +
-   geom_histogram(binwidth = 5) +
-   labs(title = "Histogram of Birth Year",
-        x = "Birth Year",
-        y = "Count") +
-   theme_minimal()
-# plot histogram of death year
-ggplot(records,aes(x = death)) +
-   geom_histogram(binwidth = 5) +
-   labs(title = "Histogram of Death Year",
-        x = "Death Year",
-        y = "Count") +
-   theme_minimal()
-# summary table of death year
-temp <- records %>%
-   mutate(death_year = year(death)) |>
-   summarize(.by= death_year,count = n()) %>%
-   arrange(death_year)
+age_records |>
+   filter(year(birth)>1750) |>
+   ggplot(aes(x = birth,y = lifespan,color = emigrant)) +
+      geom_point() +
+      geom_smooth(method = "lm",se = FALSE) +
+      labs(title = "Lifespan vs. Birth Year",
+           x = "Birth Year",
+           y = "Lifespan (years)") +
+      theme_minimal()
 
-# bar plot of death year
-ggplot(temp,aes(x = death_year,y = count)) +
-   geom_col() +
-   labs(title = "Deaths by Year",
-        x = "Death Year",
-        y = "Count") +
+extract_all_dates_posix <- function(text, tag) {
+   # Regular expression to match the tag word followed by a date in the format dd.mm.yyyy
+   myregex <- paste0(tag, "\\s+(\\d{2}\\.\\d{2}\\.\\d{4})|",
+                     tag, "\\s+(ABT \\d{4})")
+
+   matches <- str_extract_all(text, myregex)
+   if (is.na(matches)) {return(NA)} # tag not found
+   if (length(matches[[1]]) > 0) {
+      dates <- str_replace(matches[[1]], paste0(tag, "\\s+"), "")
+      # replace ABT with jan 1
+      dates_a <- dates[grepl("ABT", dates)]
+      if(length(dates_a > 0)) {
+         dates_a <- dates_a |>
+            paste0("-01-01") |>
+            str_remove("ABT ") |>
+            as.Date()
+      } else {
+         dates_a <- NA
+      }
+      dates_b <- dates[!grepl("ABT", dates)] |>
+         as.Date(dates, format = "%d.%m.%Y")
+      dates <- as.Date(c(dates_a,dates_b))
+      # remove NA values
+      dates <- dates[!is.na(dates)]
+   } else {
+      dates <- NA
+   }
+   return(dates)
+}
+
+#flatten records so we can filter out emmigrants
+records_flat <- records |>
+   select(relatives) |>
+   unnest(relatives) |>
+   transmute(record = person) |>
+   bind_rows(select(records,record))
+#|>
+#   filter(str_detect(record,"Auswanderer"))
+
+# get all births including spouse and children
+births <- records_flat$record |>
+   map(\(x) extract_all_dates_posix(x,tag="BIRT")) |>
+   flatten() |>
+   unlist() |>
+   as.Date() |>
+   year() |>
+   #summarize count by year
+   table() |>
+   as.data.frame() |>
+   as_tibble() |>
+   rename(year = Var1, births = Freq) |>
+   mutate(year = as.integer(as.character(year)))
+
+
+deaths <- records_flat$record |>
+   map(\(x) extract_all_dates_posix(x,tag="DEAT")) |>
+   flatten() |>
+   unlist() |>
+   as.Date() |>
+   year() |>
+   #summarize count by year
+   table() |>
+   as.data.frame() |>
+   as_tibble() |>
+   rename(year = Var1, deaths = Freq) |>
+   mutate(year = as.integer(as.character(year)))
+
+
+births_and_deaths <- full_join(births,deaths,by = "year") |>
+   arrange(year) |>
+   # fill in missing values
+   fill(deaths,births) |>
+   # replace NA with 0
+   replace_na(list(deaths = 0,births = 0)) |>
+   mutate(net_pop_change = births - deaths) |>
+   mutate(population = cumsum(net_pop_change))
+
+# plot of births and deaths
+births_and_deaths |>
+   # make births and deaths one column
+   pivot_longer(cols = c(births,deaths),names_to = "event",values_to = "count") |>
+   filter(year >= 1800,year <=1947) |>
+   ggplot(aes(x = year,y = count)) +
+   geom_vertical_band(1941,1947,300,"WW II","salmon",0.01) +
+   geom_vertical_band(1914,1918,100,"WW I","salmon",0.01) +
+   geom_vertical_band(1892,1897,200,"Emigration?","blue",0.005) +
+   geom_vertical_band(1870,1874,250,"Cholera III","salmon",0.01) +
+   geom_vertical_band(1848,1851,350,"Cholera II","salmon",0.01) +
+   # geom_line(aes(color = event),linewidth = 1) +
+   # scale_color_manual(values = c("green","black")) +
+   geom_col(aes(fill = event),alpha = 0.6,position = "identity") +
+   # use green and black for births and deaths
+   scale_fill_manual(values = c("green","black")) +
+   labs(title = "Life and Death in Neu/Alt Schowe, Batschka",
+        x = "Year",
+        y = "Count",
+        caption = "Source: Familienbuch Neu Schowe in der Batschka\nBrigitte und Gunther Wolf (ed.)") +
+   theme_light() +
+   # change font of title to UnifrakturCook from google fonts
+   theme(plot.title = element_text(family = "fraktur",size = 20))
+
+# line plot of population
+births_and_deaths |>
+   filter(year >= 1800,year <=1947) |>
+   ggplot(aes(x = year,y = population)) +
+   geom_line() +
+   labs(title = "Population Over Time",
+        x = "Year",
+        y = "Population") +
    theme_minimal()
-
-# table to infer population in each year
-temp <- records %>%
-   mutate(birth = year(birth),
-          death = year(death))
-
-years <- seq(min(temp$birth), max(temp$death))
 
 # Function to determine if a person is alive in a given year
 is_alive <- function(birth, death, year) {
    return(year >= birth & year <= death)
 }
 
-population_df <- data.frame(year = years)
+# impute missing birth and death years to estimate population in each year
+model_death <-lm(lifespan ~ birth,age_records)
+model_birth <-lm(lifespan ~ death,age_records)
+
+# for record missing either birth or death, but not both,
+# predict the missing value based on regressed lifespan
+age_records_est <- age_records |>
+   bind_cols(predict(model_death,age_records)) |>
+   bind_cols(predict(model_birth,age_records)) |>
+   rename(lb = `...5`,ld = `...6`) |>
+   mutate(death = if_else(is.na(death),birth + lb,death)) |>
+   mutate(birth = if_else(is.na(birth),death - ld,birth)) |>
+   select(-lb,-ld) |>
+   mutate(lifespan = as.numeric(death - birth)/365.25) |>
+   filter(!is.na(birth))
+
+
+year_recs <- age_records_est %>%
+   filter(!is.na(birth)) |>
+   mutate(birth = year(birth),
+          death = year(death))
+
+population_df <- data.frame(year = 1800:1947)
 
 # Calculate the population for each year
 population_df <- population_df %>%
    rowwise() %>%
-   mutate(population = sum(is_alive(temp$birth, temp$death, year)))
+   mutate(population = sum(is_alive(year_recs$birth, year_recs$death, year)))
+
+
 
 # plot population over time
-ggplot(population_df, aes(x = year, y = population)) +
-   geom_line() +
-   labs(title = "Population Over Time",
-        x = "Year",
-        y = "Population") +
+population_df |>
+   filter(year >= 1800) |>
+   ggplot(aes(x = year, y = population)) +
+   geom_line(linewidth = 1) +
+   labs(title = "Population Over Time", x = "Year", y = "Population") +
+   # add shaded vertical band for WWII
+   geom_vertical_band(1939,1947,100,"WW II","red",0.005) +
+   # add shaded vertical band for WWI
+   geom_vertical_band(1914,1918,100,"WW I","red",0.005) +
+   # add shaded vertical band for the second cholera epidemic
+   geom_vertical_band(1848,1851,100,"Cholera II","salmon",0.01) +
+   # add shaded vertical band for the third cholera epidemic
+   geom_vertical_band(1871,1875,150,"Cholera III","salmon",0.01) +
    theme_minimal()
+
