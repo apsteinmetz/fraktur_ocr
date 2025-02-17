@@ -1,5 +1,7 @@
 # parse family records
 library(tidyverse)
+library(ggplot2)
+
 
 file_path <- "data/persons.txt"
 
@@ -159,7 +161,7 @@ extract_date <- function(text, tag,type = c("raw","posix","gedcom")) {
    myregex <- paste0(tag, "\\s+(\\d{2}\\.\\d{2}\\.\\d{4})|",
                      tag, "\\s+(ABT \\d{4})")
 
-   matches <- str_extract(text, myregex)
+   matches <- str_extract_all(text, myregex)
    if (is.na(matches)) {return(NA)} # tag not found
    if (length(matches[[1]]) > 0) {
       date <- str_replace(matches[[1]][1], paste0(tag, "\\s+"), "")
@@ -173,6 +175,36 @@ extract_date <- function(text, tag,type = c("raw","posix","gedcom")) {
 
    } else {date <- NA}
    return(date)
+}
+
+extract_all_dates_posix <- function(text, tag) {
+   # Regular expression to match the tag word followed by a date in the format dd.mm.yyyy
+   myregex <- paste0(tag, "\\s+(\\d{2}\\.\\d{2}\\.\\d{4})|",
+                     tag, "\\s+(ABT \\d{4})")
+
+   matches <- str_extract_all(text, myregex)
+   if (is.na(matches)) {return(NA)} # tag not found
+   if (length(matches[[1]]) > 0) {
+      dates <- str_replace(matches[[1]], paste0(tag, "\\s+"), "")
+      # replace ABT with jan 1
+      dates_a <- dates[grepl("ABT", dates)]
+      if(length(dates_a > 0)) {
+         dates_a <- dates_a |>
+            paste0("-01-01") |>
+            str_remove("ABT ") |>
+            as.Date()
+      } else {
+         dates_a <- NA
+      }
+      dates_b <- dates[!grepl("ABT", dates)] |>
+         as.Date(dates, format = "%d.%m.%Y")
+      dates <- as.Date(c(dates_a,dates_b))
+      # remove NA values
+      dates <- dates[!is.na(dates)]
+   } else {
+      dates <- NA
+   }
+   return(dates)
 }
 
 extract_date_v <- Vectorize(extract_date)
@@ -222,7 +254,7 @@ make_dates_col <- function(records) {
  return(date_records)
 }
 # file_path <- "data/persons.txt" # Set file path
-# all_recs <- read_lines(file_path)
+all_recs <- read_lines(file_path)
 #raw_data <- read_records(file_path)
 #save(raw_data,file = "data/raw_data.RData")
 load("data/raw_data.RData")
@@ -249,12 +281,4 @@ records
 
 records <- records |>
    make_dates_col()
-
-
-# analyze the records
-# compute lifespan
-records <- records |>
-   filter(!is.na(birth),!is.na(death)) |>
-   mutate(lifespan = (death - birth)/365.25)
-
 
