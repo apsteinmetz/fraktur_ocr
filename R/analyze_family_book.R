@@ -1,16 +1,16 @@
 # analyze family book
 library(tidyverse)
-# Load 'showtext'
 library(showtext)
+
 
 # Automatically use 'showtext' to render text
 showtext_auto()
-
-# Add Google font 'Roboto'
 font_add_google("UnifrakturCook", "fraktur",regular.wt = 700, bold.wt = 700)
 
 
-source("r/util_geom_vertical_band.R")
+source("R/util_geom_vertical_band.R")
+load("data/records.RData") #records
+
 # analyze the records
 # compute lifespan
 age_records <- records |>
@@ -31,6 +31,8 @@ age_records |>
            x = "Birth Year",
            y = "Lifespan (years)") +
       theme_minimal()
+
+gefallen <- map(records$record,\(x) grep("Gefallen",x,value = TRUE))
 
 extract_all_dates_posix <- function(text, tag) {
    # Regular expression to match the tag word followed by a date in the format dd.mm.yyyy
@@ -110,22 +112,23 @@ births_and_deaths <- full_join(births,deaths,by = "year") |>
    mutate(population = cumsum(net_pop_change))
 
 # plot of births and deaths
+alpha <- 0.005
 births_and_deaths |>
    # make births and deaths one column
    pivot_longer(cols = c(births,deaths),names_to = "event",values_to = "count") |>
    filter(year >= 1800,year <=1947) |>
    ggplot(aes(x = year,y = count)) +
-   geom_vertical_band(1941,1947,300,"WW II","salmon",0.01) +
-   geom_vertical_band(1914,1918,100,"WW I","salmon",0.01) +
-   geom_vertical_band(1892,1897,200,"Emigration?","blue",0.005) +
-   geom_vertical_band(1870,1874,250,"Cholera III","salmon",0.01) +
-   geom_vertical_band(1848,1851,350,"Cholera II","salmon",0.01) +
+   geom_vertical_band(1941,1947,300,"WW II","red",alpha=alpha) +
+   geom_vertical_band(1914,1918,100,"WW I","red",alpha=alpha) +
+   geom_vertical_band(1895,1900,200,"Emigration?","blue",alpha=alpha) +
+   geom_vertical_band(1870,1874,250,"Cholera III","red",alpha=alpha) +
+   geom_vertical_band(1848,1851,350,"Cholera II","red",alpha=alpha) +
    # geom_line(aes(color = event),linewidth = 1) +
    # scale_color_manual(values = c("green","black")) +
    geom_col(aes(fill = event),alpha = 0.6,position = "identity") +
    # use green and black for births and deaths
    scale_fill_manual(values = c("green","black")) +
-   labs(title = "Life and Death in Neu/Alt Schowe, Batschka",
+   labs(title = "Geburt und Tod in Neu/Alt Schowe, Batschka",
         x = "Year",
         y = "Count",
         caption = "Source: Familienbuch Neu Schowe in der Batschka\nBrigitte und Gunther Wolf (ed.)") +
@@ -155,9 +158,8 @@ model_birth <-lm(lifespan ~ death,age_records)
 # for record missing either birth or death, but not both,
 # predict the missing value based on regressed lifespan
 age_records_est <- age_records |>
-   bind_cols(predict(model_death,age_records)) |>
-   bind_cols(predict(model_birth,age_records)) |>
-   rename(lb = `...5`,ld = `...6`) |>
+   bind_cols(lb = predict(model_death,age_records)) |>
+   bind_cols(ld = predict(model_birth,age_records)) %>%
    mutate(death = if_else(is.na(death),birth + lb,death)) |>
    mutate(birth = if_else(is.na(birth),death - ld,birth)) |>
    select(-lb,-ld) |>
@@ -190,8 +192,8 @@ population_df |>
    # add shaded vertical band for WWI
    geom_vertical_band(1914,1918,100,"WW I","red",0.005) +
    # add shaded vertical band for the second cholera epidemic
-   geom_vertical_band(1848,1851,100,"Cholera II","salmon",0.01) +
+   geom_vertical_band(1848,1851,100,"Cholera II","red",0.01) +
    # add shaded vertical band for the third cholera epidemic
-   geom_vertical_band(1871,1875,150,"Cholera III","salmon",0.01) +
+   geom_vertical_band(1871,1875,150,"Cholera III","red",0.01) +
    theme_minimal()
 

@@ -1,7 +1,5 @@
 # parse family records
 library(tidyverse)
-library(ggplot2)
-
 
 file_path <- "data/persons.txt"
 
@@ -155,6 +153,15 @@ extract_name <- Vectorize(function(text, type = c("raw", "formatted", "surname")
    )
    return(name)
 })
+extract_tag <- function(text, tag) {
+   # extract substring starting with "tag" and ending with any other tag from break_tags
+   # or end of string
+
+   startregex <- paste0(tag, ".*?\\n")
+   myregex <- paste0(tag,".+\\n|", paste(break_tags, collapse = "|"))
+   matches <- str_extract(text, myregex)
+   return(matches)
+}
 
 extract_date <- function(text, tag,type = c("raw","posix","gedcom")) {
       # Regular expression to match the tag word followed by a date in the format dd.mm.yyyy
@@ -253,6 +260,40 @@ make_dates_col <- function(records) {
       mutate(death = as.Date(extract_date_v(record,"DEAT",type = "posix")),.before = "record")
  return(date_records)
 }
+
+
+make_gedcom <- function(records) {
+   gedcom <- records |>
+      mutate(test = paste0("0 @I",ID,"@ INDI\n",
+                           "1 NAME ",name,"\n",
+                           "1 BIRT\n2 DATE ",extract_date_v(record,"BIRT",type = "raw"),"\n",
+                           "1 DEAT\n",
+                           "2 DATE ",extract_date_v(record,"DEAT",type = "raw"),"\n",
+                            "1 MARR\n",
+                            "2 DATE ",extract_date_v(record,"MARR",type = "raw"),"\n",
+                            "1 BURI\n",
+                            "2 DATE ",extract_date_v(record,"BURI",type = "raw"),"\n",
+                            # "2 PLAC ",extract_date(record,"BURI",type = "raw"),"\n",
+                            # "1 NOTE ",extract_date(record,"NOTE",type = "raw"),"\n",
+                            # "1 FAMC @F",ID,"@\n",
+                            # "1 FAMS @F",ID,"@\n",
+                            # "1 CHIL @I",ID,"@\n",
+                            # "1 SPOU @I",ID,"@\n",
+                            # "1 WITN @I",ID,"@\n",
+                            # "1 GODP @I",ID,"@\n",
+                            # "1 BAPM @I",ID,"@\n",
+                            # "1 RELI @I",ID,"@\n",
+                            # "1 PLAC @I",ID,"@\n",
+                            # "1 AGE @I",ID,"@\n",
+                             "1 XREF
+                             ")
+             )
+   return(gedcom)
+}
+
+make_gedcom(records[100,]) %>% pull(gedcom) %>% cat()
+extract_date(records$record[100],"BIRT",type = "raw")
+
 # file_path <- "data/persons.txt" # Set file path
 all_recs <- read_lines(file_path)
 #raw_data <- read_records(file_path)
@@ -281,4 +322,4 @@ records
 
 records <- records |>
    make_dates_col()
-
+save(records,file = "data/records.RData")
