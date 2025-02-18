@@ -163,27 +163,6 @@ extract_tag <- function(text, tag) {
    return(matches)
 }
 
-extract_date <- function(text, tag,type = c("raw","posix","gedcom")) {
-      # Regular expression to match the tag word followed by a date in the format dd.mm.yyyy
-   myregex <- paste0(tag, "\\s+(\\d{2}\\.\\d{2}\\.\\d{4})|",
-                     tag, "\\s+(ABT \\d{4})")
-
-   matches <- str_extract_all(text, myregex)
-   if (is.na(matches)) {return(NA)} # tag not found
-   if (length(matches[[1]]) > 0) {
-      date <- str_replace(matches[[1]][1], paste0(tag, "\\s+"), "")
-      date <- switch(type, raw = date,
-                     posix = if (grepl("ABT", date)) {
-                        # if posix is selected and the date is approximate use jan 1
-                        as.Date(paste0(sub("ABT (\\d{4})", "\\1", date), "-", "01-01"))}
-                     else{ as.Date(date, format = "%d.%m.%Y") },
-                     gedcom = paste0(tag, "\n", date, "\n")
-      )
-
-   } else {date <- NA}
-   return(date)
-}
-
 extract_all_dates_posix <- function(text, tag) {
    # Regular expression to match the tag word followed by a date in the format dd.mm.yyyy
    myregex <- paste0(tag, "\\s+(\\d{2}\\.\\d{2}\\.\\d{4})|",
@@ -214,6 +193,28 @@ extract_all_dates_posix <- function(text, tag) {
    return(dates)
 }
 
+extract_date <- function(text, tag,type = c("raw","posix","gedcom")) {
+      # Regular expression to match the tag word followed by a date in the format dd.mm.yyyy
+   myregex <- paste0(tag, "\\s+(\\d{2}\\.\\d{2}\\.\\d{4})|",
+                     tag, "\\s+(ABT \\d{4})")
+
+   matches <- str_extract_all(text, myregex)
+   if (is.na(matches)) {return(NA)} # tag not found
+   if (length(matches[[1]]) > 0) {
+      date <- str_replace(matches[[1]][1], paste0(tag, "\\s+"), "")
+      date <- switch(type, raw = date,
+                     posix = if (grepl("ABT", date)) {
+                        # if posix is selected and the date is approximate use jan 1
+                        as.Date(paste0(sub("ABT (\\d{4})", "\\1", date), "-", "01-01"))}
+                     else{ as.Date(date, format = "%d.%m.%Y") },
+                     gedcom = paste0("1 ",tag, "\n2 DATE ", date,"\n"),
+      )
+
+   } else {date <- NULL}
+   return(date)
+}
+
+
 extract_date_v <- Vectorize(extract_date)
 
 make_name_col <- function(records) {
@@ -233,12 +234,20 @@ make_child_col <- function(records) {
                            delim = regex("\\d+\\. "),
                            names = c("record",
                                      # create columns for up to 20 children
-                                     "FAM1","FAM2","FAM3","FAM4","FAM5",
-                                     "FAM6","FAM7","FAM8","FAM9","FAM10",
-                                     "FAM11","FAM12","FAM13","FAM14","FAM15",
-                                     "FAM16","FAM17","FAM18","FAM19","FAM20"),
+                                     "fam1","fam2","fam3","fam4","fam5",
+                                     "fam6","fam7","fam8","fam9","fam10",
+                                     "fam11","fam12","fam13","fam14","fam15",
+                                     "fam16","fam17","fam18","fam19","fam20"),
                            too_many = "merge",
-                           too_few = "align_start")
+                           too_few = "align_start") %>%
+      pivot_longer(cols = starts_with("fam"),
+                   names_to = "relationship",
+                   values_to = "person") |>
+      # reduce multiple NAs to just one
+      nest(relatives = c(relationship,person)) %>%
+      #replace multiple nas with single na
+      mutate(relatives = map(relatives,\(x) na.omit(x)))
+
    return(child_records)
 }
 
@@ -247,7 +256,7 @@ make_spouse_col <- function(records) {
    spouse_records <- records |>
       separate_wider_delim(cols = record,
                            delim = regex("MARR"),
-                           names = c("record","FAM0"),
+                           names = c("record","spouse0"),
                            too_many = "merge",
                            too_few = "align_start")
    return(spouse_records)
@@ -264,19 +273,21 @@ make_dates_col <- function(records) {
 
 make_gedcom <- function(records) {
    gedcom <- records |>
-      mutate(test = paste0("0 @I",ID,"@ INDI\n",
-                           "1 NAME ",name,"\n",
-                           "1 BIRT\n2 DATE ",extract_date_v(record,"BIRT",type = "raw"),"\n",
-                           "1 DEAT\n",
-                           "2 DATE ",extract_date_v(record,"DEAT",type = "raw"),"\n",
-                            "1 MARR\n",
-                            "2 DATE ",extract_date_v(record,"MARR",type = "raw"),"\n",
-                            "1 BURI\n",
-                            "2 DATE ",extract_date_v(record,"BURI",type = "raw"),"\n",
-                            # "2 PLAC ",extract_date(record,"BURI",type = "raw"),"\n",
-                            # "1 NOTE ",extract_date(record,"NOTE",type = "raw"),"\n",
+      mutate(.before=name,gedcom = paste0(
+         "0 @I",ID,"@ INDI\n",
+            "1 NAME ",name,"\n",
+            extract_date_v(record,"BIRT",type = "gedcom"),
+            extract_date_v(record,"DEAT",type = "gedcom"),
+            extract_date_v(record,"BURI",type = "gedcom"),
+            extract_date_v(record,"MARR",type = "gedcom"),
+            extract_date_v(record,"PLAC",type = "gedcom"),
+            "1 FAMS @F",ID,"@\n",
+            "0 @F",ID,"@ FAM\n",
+            "1 HUSB @I",ID,"@\n",
+
+          # "1 NOTE ",extract_date(record,"NOTE",type = "raw"),"\n",
                             # "1 FAMC @F",ID,"@\n",
-                            # "1 FAMS @F",ID,"@\n",
+
                             # "1 CHIL @I",ID,"@\n",
                             # "1 SPOU @I",ID,"@\n",
                             # "1 WITN @I",ID,"@\n",
@@ -285,11 +296,19 @@ make_gedcom <- function(records) {
                             # "1 RELI @I",ID,"@\n",
                             # "1 PLAC @I",ID,"@\n",
                             # "1 AGE @I",ID,"@\n",
-                             "1 XREF
+            "1 NOTE END
                              ")
-             )
+             ) %>%
+      mutate(gedcom = str_remove_all(gedcom,"NULL")) %>%
+      identity()
    return(gedcom)
 }
+
+collapse_na_children <- function(recs) {
+   filter(recs,!is.na(person))
+}
+
+records$relatives[1]
 
 make_gedcom(records[100,]) %>% pull(gedcom) %>% cat()
 extract_date(records$record[100],"BIRT",type = "raw")
@@ -312,11 +331,6 @@ records <- records_base |>
    make_name_col() |>
    make_child_col() |>
    make_spouse_col() |>
-   pivot_longer(cols = starts_with("FAM"),
-                names_to = "relationship",
-                values_to = "person") |>
-    filter(!is.na(person)) |>
-    nest(relatives = c(relationship,person)) |>
    identity()
 records
 
