@@ -11,7 +11,7 @@ oo 23.04.1865 Neu Werbas
 GEYER Magdalena ev.
 *um 1845 † 10.09.1873 AS b. 11.09.1873 (†mit 28J)
 
-1. Albus Magdalena * 22.01.1867 Neu Werbas
+1. Albus Magdalena * 22.01.1867 Neu  Werbas
 1.oo 22.08.1886 NS Hobler Michael > 1579
 2.oo 23.03.1893 NS Geiss Josef > 748
 2. Albus Katharina *um 1871 Nadalj
