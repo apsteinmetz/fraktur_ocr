@@ -3,33 +3,6 @@ library(tidyverse)
 
 file_path <- "data/persons.txt"
 
-sample_text_to_parse <-
-"@I7@
-ALBUS Christian
-*um 1842
-oo 23.04.1865 Neu Werbas
-GEYER Magdalena ev.
-*um 1845 † 10.09.1873 AS b. 11.09.1873 (†mit 28J)
-
-1. Albus Magdalena * 22.01.1867 Neu  Werbas
-1.oo 22.08.1886 NS Hobler Michael > 1579
-2.oo 23.03.1893 NS Geiss Josef > 748
-2. Albus Katharina *um 1871 Nadalj
-oo 22.02.1888 NS Haller Heinrich Georg > 1139
-3. Albus Jakob ev. * 03.09.1873 AS † 18.09.1873 Neu Werbas b. 19.09.1873
-~ 06.09.1873 TP: Adam SchmidtSofia Werle
-nach ev. Matrikel Werbas (†mit 10T als Johanna)
-2.o‐o
-WOLF Christina * 23.04.1853 NS > 4068.2
-Eltern: Wolf JakobKreter Katharina
-lebt 1885 in Nadalj
-
-4. Wolf Christina * 16.11.1874 AS
-oo Herzberger Georg > 1450
-5. Wolf Christian * 15.11.1885 AS
-oo 28.07.1907 AS Geist Ethel > 4090"
-
-
 
 tag_text <- function(text_vec) {
    # Replace special characters
@@ -263,11 +236,14 @@ make_spouse_col <- function(records) {
 }
 
 make_dates_col <- function(records) {
-   # add columns for birth and death date of main person
-   date_records <- records |>
-      mutate(birth = as.Date(extract_date_v(record,"BIRT",type = "posix")),.before = "record") |>
-      mutate(death = as.Date(extract_date_v(record,"DEAT",type = "posix")),.before = "record")
- return(date_records)
+   records$birth <- as.Date(rep(NA, nrow(records)))
+   records$death <- as.Date(rep(NA, nrow(records)))
+   for (i in 1:nrow(records)) {
+      records$birth[i] <- extract_date(records$record[i], "BIRT", type = "posix")
+      records$death[i] <- extract_date(records$record[i], "DEAT", type = "posix")
+   }
+   records <- records |> select(ID,surname,name,birth,death,everything())
+   return(records)
 }
 
 
@@ -334,6 +310,8 @@ records <- records_base |>
    identity()
 records
 
+
 records <- records |>
    make_dates_col()
+
 save(records,file = "data/records.RData")
