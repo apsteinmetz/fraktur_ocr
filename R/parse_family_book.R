@@ -36,7 +36,9 @@ tag_text <- function(text_vec) {
   return(text_vec)
 }
 
-break_tags <- c(
+element_tags <- c(
+  "NAME",
+  "DATE",
   "XREF",
   "BIRT",
   "MARR",
@@ -49,6 +51,9 @@ break_tags <- c(
   "BAPM",
   "NOTE"
 )
+
+break_tags <- c(element_tags)
+
 break_sub_tags <- c("WITN", "GODP", "AGE", "PLAC")
 
 # insert new item in character vector at line break tags
@@ -120,12 +125,14 @@ read_records <- function(file_path) {
   return(records)
 }
 
-extract_name <- Vectorize(function(
+extract_name <-function(
   text,
   type = c("raw", "formatted", "surname")
 ) {
   # Split the text into words
-  words <- str_split(text, "\\s+")[[1]]
+  words <- str_split(text, "\\s+")[[1]] |>
+    # Remove empty elements
+    keep(~ .x != "")
   # Check if there is a third word and if it's a lowercase alphabetic string
   if (length(words) >= 3 && grepl("^[A-Z][a-z]+$", words[3])) {
     # Append the third word if it qualifies
@@ -145,8 +152,11 @@ extract_name <- Vectorize(function(
     surname = words[1],
     stop("Invalid type specified")
   )
-  return(name)
-})
+  return(trimws(name))
+}
+
+extract_name_v <- Vectorize(extract_name)
+
 extract_tag <- function(text, tag) {
   # extract substring starting with "tag" and ending with any other tag from break_tags
   # or end of string
@@ -282,9 +292,9 @@ make_child_col <- function(records) {
       values_to = "person"
     ) |>
     # reduce multiple NAs to just one
-    nest(relatives = c(relationship, person)) %>%
+    nest(children = c(relationship, person)) %>%
     #replace multiple nas with single na
-    mutate(relatives = map(relatives, \(x) na.omit(x)))
+    mutate(children = map(children, \(x) na.omit(x)))
 
   return(child_records)
 }
@@ -301,6 +311,23 @@ make_spouse_col <- function(records) {
     )
   return(spouse_records)
 }
+
+separate_all_elements <- function(records) {
+    pattern <- paste0("(", paste(break_tags, collapse = "|"), ")")
+    all_records_data <- records |>
+      mutate(record = str_split(record, pattern)) |>
+      unnest(record) |>
+      mutate(record = trimws(record))
+    # extract all break tags as a column
+    all_records_tags <- records |>
+      mutate(tags = str_extract_all(paste("NAME",record), pattern)) |>
+      unnest(tags) |>
+      select(tags)
+    all_records <- cbind(all_records_data, all_records_tags) |>
+      mutate(record = paste(tags, record))
+    return(all_records)
+}
+
 
 make_dates_col <- function(records) {
   records$birth <- as.Date(rep(NA, nrow(records)))
@@ -364,13 +391,13 @@ collapse_na_children <- function(recs) {
   filter(recs, !is.na(person))
 }
 
-records$relatives[1]
+records$children[1]
 
 make_gedcom(records[100, ]) %>% pull(gedcom) %>% cat()
 extract_date(records$record[100], "BIRT", type = "raw")
 
 # file_path <- "data/persons.txt" # Set file path
-all_recs <- read_lines(file_path)
+# all_recs <- read_lines(file_path)
 #raw_data <- read_records(file_path)
 #save(raw_data,file = "data/raw_data.RData")
 load("data/raw_data.RData")
@@ -384,14 +411,12 @@ records_base <- map(raw_data, str_flatten, collapse = "\n") %>%
   filter(!str_detect(record, "nach Korrektur unbesetzt"))
 
 records <- records_base |>
-  make_name_col() |>
+  # make_name_col() |>
   make_child_col() |>
-  make_spouse_col() |>
-  identity()
+  separate_all_elements() |>
+  as_tibble()
+
+
+# save(records, file = "data/records.RData")
+load("data/records.RData")
 records
-
-
-records <- records |>
-  make_dates_col()
-
-save(records, file = "data/records.RData")
