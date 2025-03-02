@@ -1,5 +1,52 @@
 library(tidyverse)
 
+
+extract_xref <- function(record) {
+   xref <- str_extract(record, "\\d+")
+   return(paste0("1 FAMC ", "@F",xref, "@\n"))
+}
+
+make_ged <- function(record){
+   tag <- str_extract(record,break_tags) |>
+      # remove NAs
+      discard(is.na)
+   record <- str_trim(str_remove(record,tag))
+   # print(tag)
+   # print(record)
+   #perform different actions based on tag value
+   # use switch statement
+   ged <- switch(
+      tag,
+      "NAME" = paste("\n1",tag, extract_name(record,type = "formatted")),
+      "BIRT" = extract_date(paste(tag,record),tag,type = "gedcom"),
+      "DEAT" = extract_date(paste(tag,record),tag,type = "gedcom"),
+      "BURI" = extract_date(paste(tag,record),tag,type = "gedcom"),
+      "Eltern:" = paste0(" 2 NOTE Eltern: ",record,"\n"),
+      "XREF" = extract_xref(record),
+      "MARR" = extract_date(record,tag,type = "posix"),
+      "PLAC" = paste0(" 2 ",tag," ",record),
+      "RELI" = paste0(" 2 ",tag," ",record,"\n"),
+      "WITN" = paste0(" 2 ",tag," ",record,"\n"),
+      "GODP" = paste0(" 2 ",tag," ",record,"\n"),
+      "BAPM" = extract_date(paste(tag,record),tag,type = "gedcom"),
+      "NOTE" = paste0("2 ",tag," ",record,"\n")
+   )
+   return(ged)
+
+}
+
+make_individual_ged <- function(ID) {
+  gedcom <- paste0("0 @I",ID,"@ INDI\n")
+  gedcom <- paste0(gedcom,"1 FAMS @F",ID,"@\n")
+  gedcom <- paste0(gedcom,"0 @F",ID,"@ FAM\n")
+  gedcom <- paste0(gedcom,"1 HUSB @I",ID,"@\n")
+   return(gedcom)
+}
+
+make_ged_v <- Vectorize(make_ged)
+make_individual_ged_v <- Vectorize(make_individual_ged)
+
+
 # Define the function
 separate_by_tags <- function(text) {
   date_regex <- paste0("^(\\d{2}\\.\\d{2}\\.\\d{4})|\\s+(ABT \\d{4})")
@@ -14,7 +61,6 @@ separate_by_tags <- function(text) {
     keep(~ .x != "")
   # Extract the tags and their corresponding text
   tag_positions <- unlist(str_extract_all(text, pattern))
-
   # make a new element list if element begins with a date, separate it into 2 parts, date and text and add them to the new list
   new_elements <- list()
   for (i in 1:length(elements)) {
@@ -47,9 +93,8 @@ separate_by_tags <- function(text) {
     }
   }
 
-  return(new_elements_list)
+  return(trimws(new_elements_list))
 }
-
 
 # Example usage
 break_tags <- c(
@@ -66,10 +111,56 @@ break_tags <- c(
 )
 break_sub_tags <- c("WITN", "GODP", "AGE", "PLAC")
 
+# function to create family record using using ID as family and ID as individual and person as spouse
+create_family_record <- function(id, spouse, children) {
+   id <- record$ID
+   spouse <- record$spouse0
+   children <- record$relatives
 
-separate_by_tags(records$record[1])
-
-for (i in 1:10) {
-  separate_by_tags(records$record[i])
-  print("")
+  family_record <- paste0(
+    "@F", id, "@ FAM\n",
+    "HUSB @I", id, "@\n",
+    "WIFE @I", spouse, "@\n"
+  )
+  for (child in children) {
+    family_record <- paste0(family_record, "CHIL @I", child, "@\n")
+  }
+  return(family_record)
 }
+
+create_family_record(records)
+
+# function to group by ID and collapse all records into a single record
+collapse_records <- function(records) {
+  records <- records |>
+    group_by(ID) |>
+    summarize(tag_ged =str_c(tag_ged, collapse = "\n"), .groups = "drop")
+  return(records)
+}
+
+
+records_ged <- collapse_records(records) |>
+  left_join(distinct(select(records,ID,gedcom)), by = "ID") |>
+  mutate(gedcom = paste0(gedcom,tag_ged)) |>
+  select(ID,gedcom)
+
+# extract gedcom as a single character vector
+gedcom <- records_ged |>
+  pull(gedcom) |>
+  str_c(collapse = "\n")
+
+make_header_col <- function(records) {
+  # Extract the person's name from the first line of the record
+  records <- records |>
+    mutate(.before = ID,gedcom = make_individual_ged_v(ID))
+  return(records)
+}
+
+make_tag_ged <- function(records) {
+  records <- records |>
+    mutate(.before = ID,tag_ged = make_ged_v(record))
+  return(records)
+}
+
+# write gedcom out to a text file as a string of characters, not using writeLines
+# writeChar(gedcom, con = "data/gedcom.ged")
