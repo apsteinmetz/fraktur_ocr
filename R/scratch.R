@@ -1,50 +1,6 @@
 library(tidyverse)
 
 
-extract_xref <- function(record) {
-   xref <- str_extract(record, "\\d+")
-   return(paste0("1 FAMC ", "@F",xref, "@\n"))
-}
-
-make_ged <- function(record){
-   tag <- str_extract(record,break_tags) |>
-      # remove NAs
-      discard(is.na)
-   record <- str_trim(str_remove(record,tag))
-   # print(tag)
-   # print(record)
-   #perform different actions based on tag value
-   # use switch statement
-   ged <- switch(
-      tag,
-      "NAME" = paste("\n1",tag, extract_name(record,type = "formatted")),
-      "BIRT" = extract_date(paste(tag,record),tag,type = "gedcom"),
-      "DEAT" = extract_date(paste(tag,record),tag,type = "gedcom"),
-      "BURI" = extract_date(paste(tag,record),tag,type = "gedcom"),
-      "Eltern:" = paste0(" 2 NOTE Eltern: ",record,"\n"),
-      "XREF" = extract_xref(record),
-      "MARR" = extract_date(record,tag,type = "posix"),
-      "PLAC" = paste0(" 2 ",tag," ",record),
-      "RELI" = paste0(" 2 ",tag," ",record,"\n"),
-      "WITN" = paste0(" 2 ",tag," ",record,"\n"),
-      "GODP" = paste0(" 2 ",tag," ",record,"\n"),
-      "BAPM" = extract_date(paste(tag,record),tag,type = "gedcom"),
-      "NOTE" = paste0("2 ",tag," ",record,"\n")
-   )
-   return(ged)
-
-}
-
-make_individual_ged <- function(ID) {
-  gedcom <- paste0("0 @I",ID,"@ INDI\n")
-  gedcom <- paste0(gedcom,"1 FAMS @F",ID,"@\n")
-  gedcom <- paste0(gedcom,"0 @F",ID,"@ FAM\n")
-  gedcom <- paste0(gedcom,"1 HUSB @I",ID,"@\n")
-   return(gedcom)
-}
-
-make_ged_v <- Vectorize(make_ged)
-make_individual_ged_v <- Vectorize(make_individual_ged)
 
 
 # Define the function
