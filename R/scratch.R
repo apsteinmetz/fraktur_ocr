@@ -1,6 +1,13 @@
 library(tidyverse)
 
+fix_dates <- function(text){
+  # fix dates where the day is missing
+  text |> str_replace_all(" (\\.\\d{1,2}\\.\\d{4})","1\\1") |>
+  # rearrange dates to yyyy-mm-dd
+  str_replace_all("(\\d{2})\\.(\\d{2})\\.(\\d{4})","\\3-\\2-\\1")
+}
 
+fix_dates_v <- Vectorize(fix_dates)
 
 
 # Define the function

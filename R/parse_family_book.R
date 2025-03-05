@@ -1,6 +1,9 @@
 # parse family records
 library(tidyverse)
 
+PROGRESS <- TRUE
+# extraction functions ---------------------------------------------------------
+
 file_path <- "data/persons.txt"
 
 date_regex <- paste0("^(\\d{2}\\.\\d{2}\\.\\d{4})|\\s+(ABT \\d{4})")
@@ -33,7 +36,6 @@ break_tags <- c(element_tags)
 #  }
 #  return(text_vec)
 # }
-
 
 #' Function to read the file and extract records
 #'
@@ -95,7 +97,6 @@ read_records <- function(file_path) {
   return(records)
 }
 
-# extraction functions ---------------------------------------------------------
 tag_text <- function(text_vec) {
   # Replace special characters
   # text_vec <- gsub("@I(\\d+)@","@I\\1@ INDI\nNOTE ID=\\1",text_vec)
@@ -130,7 +131,7 @@ tag_text <- function(text_vec) {
   return(text_vec)
 }
 
-extract_name <-function(
+extract_name <- function(
   text,
   type = c("raw", "formatted", "surname")
 ) {
@@ -208,35 +209,36 @@ extract_all_dates_posix <- function(text, tag) {
   return(dates)
 }
 
-fix_dates <- function(text){
+fix_dates <- function(text) {
   # fix dates where the day is missing
-  text <- text |> str_replace_all(" (\\.\\d{1,2}\\.\\d{4})","1\\1") |>
+  text <- text |>
+    str_replace_all(" (\\.\\d{1,2}\\.\\d{4})", "1\\1") |>
     # arrrange dates to yyyy-mm-dd
-    str_replace_all("(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})","\\3-\\2-\\1") |>
+    str_replace_all("(\\d{1,2})\\.(\\d{1,2})\\.(\\d{4})", "\\3-\\2-\\1") |>
     # weird dash character
-    str_replace_all("‐","-")
+    str_replace_all("‐", "-")
   return(text)
 }
 
-fix_dates_2 <- function(text){
+fix_dates_2 <- function(text) {
   text <- text |>
-  # replace month number with month abbreviation
+    # replace month number with month abbreviation
     # add leading zeros if needed
-   str_replace("(\\d{4})-(\\d{1})-(\\d{2})", "\\1 0\\2 \\3") |>
-   str_replace("(\\d{4})-(\\d{2})-(\\d{1})$", "\\1 \\2 0\\3") |>
-   str_replace_all("(\\d{4})-(\\d{2})-(\\d{2})", "\\1 \\2 \\3") |>
-   str_replace_all("(\\d{4}) (01) (\\d{2})", "\\3 JAN \\1") |>
-   str_replace_all("(\\d{4}) (02) (\\d{2})", "\\3 FEB \\1") |>
-   str_replace_all("(\\d{4}) (03) (\\d{2})", "\\3 MAR \\1") |>
-   str_replace_all("(\\d{4}) (04) (\\d{2})", "\\3 APR \\1") |>
-   str_replace_all("(\\d{4}) (05) (\\d{2})", "\\3 MAY \\1") |>
-   str_replace_all("(\\d{4}) (06) (\\d{2})", "\\3 JUN \\1") |>
-   str_replace_all("(\\d{4}) (07) (\\d{2})", "\\3 JUL \\1") |>
-   str_replace_all("(\\d{4}) (08) (\\d{2})", "\\3 AUG \\1") |>
-   str_replace_all("(\\d{4}) (09) (\\d{2})", "\\3 SEP \\1") |>
-   str_replace_all("(\\d{4}) (10) (\\d{2})", "\\3 OCT \\1") |>
-   str_replace_all("(\\d{4}) (11) (\\d{2})", "\\3 NOV \\1") |>
-   str_replace_all("(\\d{4}) (12) (\\d{2})", "\\3 DEC \\1") |>
+    str_replace("(\\d{4})-(\\d{1})-(\\d{2})", "\\1 0\\2 \\3") |>
+    str_replace("(\\d{4})-(\\d{2})-(\\d{1})$", "\\1 \\2 0\\3") |>
+    str_replace_all("(\\d{4})-(\\d{2})-(\\d{2})", "\\1 \\2 \\3") |>
+    str_replace_all("(\\d{4}) (01) (\\d{2})", "\\3 JAN \\1") |>
+    str_replace_all("(\\d{4}) (02) (\\d{2})", "\\3 FEB \\1") |>
+    str_replace_all("(\\d{4}) (03) (\\d{2})", "\\3 MAR \\1") |>
+    str_replace_all("(\\d{4}) (04) (\\d{2})", "\\3 APR \\1") |>
+    str_replace_all("(\\d{4}) (05) (\\d{2})", "\\3 MAY \\1") |>
+    str_replace_all("(\\d{4}) (06) (\\d{2})", "\\3 JUN \\1") |>
+    str_replace_all("(\\d{4}) (07) (\\d{2})", "\\3 JUL \\1") |>
+    str_replace_all("(\\d{4}) (08) (\\d{2})", "\\3 AUG \\1") |>
+    str_replace_all("(\\d{4}) (09) (\\d{2})", "\\3 SEP \\1") |>
+    str_replace_all("(\\d{4}) (10) (\\d{2})", "\\3 OCT \\1") |>
+    str_replace_all("(\\d{4}) (11) (\\d{2})", "\\3 NOV \\1") |>
+    str_replace_all("(\\d{4}) (12) (\\d{2})", "\\3 DEC \\1") |>
     identity()
   return(text)
 }
@@ -246,34 +248,43 @@ fix_dates_2 <- function(text){
 # the date group might be followed by a place name
 # the place name might be followed by a note
 
-extract_date_ged <- function(text){
-  # date_regex <- paste0("^(\\d{2}\\.\\d{2}\\.\\d{4})|\\s+(ABT \\d{4})")
+extract_date_ged <- function(text) {
+  #date_regex <- paste0("^(\\d{4}-\\d{2}\\.\\d{2})|\\s+(ABT \\d{4})")
+  date_regex <- paste0("^\\d{4}-\\d{2}-\\d{2}")
   # extract date from record
-  tokens <- text |> str_squish() |>
-    str_split(" ") |>
-    unlist()
+  tokens <- text |> str_squish() |> str_split(" ") |> unlist()
   # if 2nd  token is either ABT, BEF or BET paste second and third token together
-  if (tokens[2] %in% c("ABT","BEF","BET")) {
-    date <- paste(tokens[2],tokens[3])
+  if (tokens[2] %in% c("ABT", "BEF", "BET")) {
+    date <- paste(tokens[2], tokens[3])
     start_char <- 4
   } else {
-    date <- tokens[2]
-    start_char <- 3
+    # is it a valid date?
+    if (str_detect(tokens[2], date_regex)) {
+      date <- tokens[2]
+      start_char <- 3
+    } else {
+      # placeholder. need to remove date tag while keeping PLAC
+      date <- "Missing"
+      start_char <- 2
+    }
   }
-  if (str_detect(date,"BET")) {
-    date <- str_replace(date,"-"," AND ")
+  if (str_detect(date, "BET")) {
+    date <- str_replace(date, "-", " AND ")
   }
   # change format to dd-MON-yyyy
   date <- fix_dates_2(date)
-  ged <- paste0("2 DATE ",date,"\n")
+  ged <- paste0("2 DATE ", date, "\n")
   #paste remaining tokens together as PLAC
-  if (length(tokens) > start_char-1) {
-    place <- paste0("2 PLAC ",paste0(tokens[start_char:length(tokens)],collapse = " "),"\n")
-    ged <- paste0(ged,place)
+  if (length(tokens) > start_char - 1) {
+    place <- paste0(
+      "2 PLAC ",
+      paste0(tokens[start_char:length(tokens)], collapse = " "),
+      "\n"
+    )
+    ged <- paste0(ged, place)
   }
   return(ged)
 }
-
 extract_date_ged_v <- Vectorize(extract_date_ged)
 
 fix_dates_v <- Vectorize(fix_dates)
@@ -297,9 +308,9 @@ extract_date <- function(text, tag, type = c("raw", "posix", "gedcom")) {
   if (length(matches[[1]]) > 0) {
     match <- matches[[1]][1]
     extras <- str_trim(str_remove(text, match))
-    if (grepl("^\\..+",match)){
+    if (grepl("^\\..+", match)) {
       # missing day, pretend it's first of month
-      match <- paste0("1",match)
+      match <- paste0("1", match)
     }
     date <- str_replace(match, paste0(tag, "\\s+"), "")
     date <- switch(
@@ -311,12 +322,11 @@ extract_date <- function(text, tag, type = c("raw", "posix", "gedcom")) {
       } else {
         as.Date(date, format = "%d.%m.%Y")
       },
-      gedcom = if(str_length(extras) > 0) {
-         paste0("1 ", tag, "\n 2 DATE ", date, "\n"," 2 PLAC ",extras,"\n")
-        } else {
-          paste0("1 ", tag, "\n 2 DATE ", date, "\n")
-
-        },
+      gedcom = if (str_length(extras) > 0) {
+        paste0("1 ", tag, "\n 2 DATE ", date, "\n", " 2 PLAC ", extras, "\n")
+      } else {
+        paste0("1 ", tag, "\n 2 DATE ", date, "\n")
+      },
     )
   } else {
     date <- NULL
@@ -328,50 +338,53 @@ extract_date_v <- Vectorize(extract_date)
 
 extract_xref <- function(text) {
   xref <- str_extract(text, "\\d+")
-  return(paste0("1 FAMC ", "@F",xref, "@\n"))
+  return(paste0("1 FAMC ", "@F", xref, "@\n"))
 }
 
-make_ged <- function(text){
-  tag <- str_extract(text,break_tags) |>
+make_ged <- function(text) {
+  tag <- str_extract(text, break_tags) |>
     # remove NAs
     discard(is.na)
   # text <- str_trim(str_remove(text,tag))
   # remove double line breaks
-  text <- str_replace_all(text,"\n\n","\n")
+  text <- str_replace_all(text, "\n\n", "\n")
   ged <- switch(
     tag,
-    "NAME" = paste0("1 NAME ",extract_name(str_trim(str_remove(text,tag)),type = "formatted"),"\n"),
-    "BIRT" = paste0("1 BIRT\n",extract_date_ged(text)),
-    "DEAT" = paste0("1 DEAT\n",extract_date_ged(text)),
-    "BURI" = paste0("1 BURI\n",extract_date_ged(text)),
-    "BAPM" = paste0("1 BAPM\n",extract_date_ged(text)),
-    "MARR" = paste0("1 MARR\n",extract_date_ged(text)),
+    "NAME" = paste0(
+      "1 NAME ",
+      extract_name(str_trim(str_remove(text, tag)), type = "formatted"),
+      "\n"
+    ),
+    "BIRT" = paste0("1 BIRT\n", extract_date_ged(text)),
+    "DEAT" = paste0("1 DEAT\n", extract_date_ged(text)),
+    "BURI" = paste0("1 BURI\n", extract_date_ged(text)),
+    "BAPM" = paste0("1 BAPM\n", extract_date_ged(text)),
+    "MARR" = paste0("1 MARR\n", extract_date_ged(text)),
     "XREF" = extract_xref(text),
-    "PLAC" = paste0("2 ",text,"\n"),
-    "RELI" = paste0("2 ",text,"\n"),
-    "WITN" = paste0("2 ",text,"\n"),
-    "GODP" = paste0("2 ",text,"\n"),
-    "Eltern:" = paste0("2 NOTE ",text,"\n"),
-    "Wohnort" = paste0("2 PLAC ",text,"\n"),
-    "letzter" = paste0("2 PLAC ",text,"\n"),
-    "NOTE" = paste0("2 ",text,"\n")
+    "PLAC" = paste0("2 ", text, "\n"),
+    "RELI" = paste0("2 ", text, "\n"),
+    "WITN" = paste0("2 ", text, "\n"),
+    "GODP" = paste0("2 ", text, "\n"),
+    "Eltern:" = paste0("2 NOTE ", text, "\n"),
+    "Wohnort" = paste0("2 PLAC ", text, "\n"),
+    "letzter" = paste0("2 PLAC ", text, "\n"),
+    "NOTE" = paste0("2 ", text, "\n")
   )
   if (is.null(ged)) {
-    ged <- paste0("1 NOTE ",text,"\n")
+    ged <- paste0("1 NOTE ", text, "\n")
   }
   return(ged)
-
 }
 
-make_individual_ged <- function(ID,type="indi") {
-if (type == "indi") {
-  gedcom <- paste0("0 @I",ID,"@ INDI\n")
-  gedcom <- paste0(gedcom,"1 FAMS @F",ID,"@\n")
-} else {
-  gedcom <- paste0("0 @F",ID,"@ FAM\n")
-  gedcom <- paste0(gedcom,"1 HUSB @I",ID,"@\n")
-  # is it husband? not always, then a mistake
-}
+make_individual_ged <- function(ID, type = "indi") {
+  if (type == "indi") {
+    gedcom <- paste0("0 @I", ID, "@ INDI\n")
+    gedcom <- paste0(gedcom, "1 FAMS @F", ID, "@\n")
+  } else {
+    gedcom <- paste0("0 @F", ID, "@ FAM\n")
+    gedcom <- paste0(gedcom, "1 HUSB @I", ID, "@\n")
+    # is it husband? not always, then a mistake
+  }
   return(gedcom)
 }
 
@@ -460,13 +473,14 @@ make_dates_col <- function(records) {
   return(records)
 }
 separate_all_tags <- function(records) {
+  if (PROGRESS) cat('Separating Records GED tags ')
   pattern <- paste0("(", paste(break_tags, collapse = "|"), ")")
   all_records_data <- records |>
     mutate(record = str_split(record, pattern)) |>
     unnest(record)
   # extract all break tags as a column
   all_records_tags <- records |>
-    mutate(tags = str_extract_all(paste("NAME",record), pattern)) |>
+    mutate(tags = str_extract_all(paste("NAME", record), pattern)) |>
     unnest(tags) |>
     select(tags)
   all_records <- cbind(all_records_data, all_records_tags) |>
@@ -481,105 +495,144 @@ separate_all_tags <- function(records) {
 make_header_cols <- function(records) {
   # Extract the person's name from the first line of the record
   records <- records |>
-    mutate(.before = ID,ged_indi = make_individual_ged_v(ID,"indi")) |>
-    mutate(.before = ID,ged_fam = make_individual_ged_v(ID,"fam"))
+    mutate(.before = ID, ged_indi = make_individual_ged_v(ID, "indi")) |>
+    mutate(.before = ID, ged_fam = make_individual_ged_v(ID, "fam"))
   return(records)
 }
+
+fix_reli_pos <- function(records) {
+# if a record starts with RELI and the record above it starts with NAME, swap
+# the row containing RELI with the row below it, which should be an event
+  for (i in 2:nrow(records)) {
+    if (grepl("^RELI", records$record[i]) && grepl("^NAME", records$record[i-1])) {
+      temp <- records$record[i]
+      records$record[i] <- records$record[i+1]
+      records$record[i+1] <- temp
+    }
+  }
+  return (records)
+}
+
+fix_plac_pos <- function(records) {
+  # squish rows with double tags
+  for (i in 2:nrow(records)) {
+    if (grepl("^2 PLAC", records$tag_ged[i]) && grepl("^2 PLAC", records$tag_ged[i+1])) {
+      records$record[i] <- paste(records$record[i],
+                                 str_remove(records$record[i+1],paste0("^",tag)))
+      records$record[i+1] <- NA
+
+      records$tag_ged[i] <- paste(records$tag_ged[i],
+                                 str_remove(records$tag_ged[i+1],paste0("^",tag)))
+      records$tag_ged[i+1] <- NA
+      print(paste("got one at row", i))
+    }
+  }
+  records <- records |> filter(!is.na(record))
+  return(records)
+}
+
+records2 <- fix_plac_pos(records)
+
 make_tag_ged <- function(records) {
+  if (PROGRESS) cat('making GED tags ')
+  records <- fix_reli_pos(records)
   records <- records |>
-    mutate(.before = ID,tag_ged = make_ged_v(record))
+    mutate(.before = ID, tag_ged = make_ged_v(record))
+  records <- fix_plac_pos(records)
   return(records)
 }
 
 # loader section ---------------------------------------------------------------
-# file_path <- "data/persons.txt" # Set file path
-# all_recs <- read_lines(file_path)
-#raw_data <- read_records(file_path)
-#save(raw_data,file = "data/raw_data.RData")
-load("data/raw_data.RData")
-# convert to data frame
-records_base <- map(raw_data, str_flatten, collapse = "\n") %>%
-  enframe(name = NULL, value = "record") |>
-  unnest(record) |>
-  separate(record, c("ID", "record"), sep = " ", extra = "merge") |>
-  mutate(ID = as.integer(str_remove_all(ID, "\\D"))) |>
-  mutate(record = tag_text(record)) |>
-  mutate(record = fix_dates_v(record)) |>
-  # remove missing persons
-  filter(!str_detect(record, "nach Korrektur unbesetzt"))
-save(records_base, file = "data/records_base.RData")
+read_raw_text <- function() {
+  file_path <- "data/persons.txt" # Set file path
+  all_recs <- read_lines(file_path)
+  raw_data <- read_records(file_path)
+  save(raw_data, file = "data/raw_data.RData")
+}
+load_raw_records <- function() {
+  load("data/raw_data.RData")
+  records_base <- map(raw_data, str_flatten, collapse = "\n") %>%
+    enframe(name = NULL, value = "record") |>
+    unnest(record) |>
+    separate(record, c("ID", "record"), sep = " ", extra = "merge") |>
+    mutate(ID = as.integer(str_remove_all(ID, "\\D"))) |>
+    mutate(record = tag_text(record)) |>
+    mutate(record = fix_dates_v(record)) |>
+    # remove missing persons
+    filter(!str_detect(record, "nach Korrektur unbesetzt"))
+  save(records_base, file = "data/records_base.RData")
+}
 # processing section ---------------------------------------------------------------
-load("data/records_base.RData")
-
-records <- records_base |>
-  # peel off layers of info
-  make_child_col() |>
-  make_spouse_col() |>
-  make_name_col() |>
-  make_header_cols()|>
-  # now just the main person is left in the record column
-  separate_all_tags() |>
-  make_tag_ged() |>
-  as_tibble()
-
-temp <- records |> filter(tag_ged == "NULL") |>
-  select(record)
-if (nrow(temp) > 0) {
-  print("Records with NULL tag_ged")
-  print(temp)
-} else {
-  print("No records with NULL tag_ged. GOOD!")
+make_records <- function(records) {
+  records <- records_base |>
+    # peel off layers of info
+    make_child_col() |>
+    make_spouse_col() |>
+    make_name_col() |>
+    make_header_cols() |>
+    # now just the main person is left in the record column
+    separate_all_tags() |>
+    make_tag_ged() |>
+    as_tibble()
+  save(records, file = "data/records.RData")
+  return(records)
 }
 
+# save records to gedcom file --------------------------------------------------
 # function to group by ID and collapse all records into a single record
 collapse_records <- function(records) {
-  records_x <- records |>
+  records <- records |>
     group_by(ID) |>
-    summarize(tag_ged =str_c(tag_ged, collapse = "\n"), .groups = "drop") |>
+    summarize(tag_ged = str_c(tag_ged, collapse = "\n"), .groups = "drop") |>
     # remove double line breaks
     mutate(tag_ged = str_replace_all(tag_ged, "\\n\\n", "\n")) |>
     as_tibble()
-  return(records_x)
+  return(records)
 }
 
-# read header file
-header <- readChar("data/header.ged",nchars=1e6)
-footer <- readChar("data/footer.ged",nchars=1e6)
+save_ged <- function(records, outfile = "schowe") {
+  header <- readChar("data/header.ged", nchars = 1e6)
+  footer <- readChar("data/footer.ged", nchars = 1e6)
 
-# make one long gedcom string with line breaks as separators
-records_ged <- collapse_records(records) |>
-  left_join(distinct(select(records,ID,ged_indi,ged_fam)), by = "ID") |>
-  # eventually paste spouse and children ged
-  mutate(gedcom = paste0(ged_indi,tag_ged,ged_fam)) |>
-  select(ID,gedcom) |>
-  # combine gedcom into a single character vector
-  pull(gedcom) |>
-  str_c(collapse = "")
+  # make one long gedcom string with line breaks as separators
+  records_ged <- collapse_records(records) |>
+    left_join(distinct(select(records, ID, ged_indi, ged_fam)), by = "ID") |>
+    # eventually paste spouse and children ged
+    mutate(gedcom = paste0(ged_indi, tag_ged, ged_fam)) |>
+    select(ID, gedcom) |>
+    # combine gedcom into a single character vector
+    pull(gedcom) |>
+    str_c(collapse = "")
 
-# remove elements that were not properly tagged
-records_ged <- strsplit(records_ged, "\n")[[1]] |>
-  enframe(name = NULL, value = "record") |>
-  # remove any row that does not begin with a number
-  filter(str_detect(record, "^\\d+ ")) |>
-  filter(!str_detect(record, "^\\d{4}")) |>
-  filter(!str_detect(record, "^\\d+\\.$")) |>
-  pull(record) |>
-  str_c(collapse = "\n") |>
-  # change unrecognized tags to NOTE
-  str_replace_all("GODP","NOTE GODP") |>
-  str_replace_all("WITN","NOTE WITN")
+  # remove elements that were not properly tagged
+  records_ged <- strsplit(records_ged, "\n")[[1]] |>
+    enframe(name = NULL, value = "record") |>
+    # remove any row that does not begin with a number
+    filter(str_detect(record, "^\\d+ ")) |>
+    filter(!str_detect(record, "^\\d{4}")) |>
+    filter(!str_detect(record, "^\\d+\\.$")) |>
+    pull(record) |>
+    str_c(collapse = "\n") |>
+    # change unrecognized tags to NOTE
+    str_replace_all("GODP", "NOTE GODP") |>
+    str_replace_all("WITN", "NOTE WITN")
 
+  records_ged <- paste0(header, records_ged, footer) |>
+    # get rid of space padding
+    str_replace_all("  ", " ")
+  writeChar(records_ged, con = paste0("data/", outfile, ".ged"), eos = NULL)
+}
 
-records_ged <- paste0(header,records_ged,footer) |>
-  # get rid of space padding
-  str_replace_all("  "," ")
-writeChar(records_ged, con = "data/schowe.ged",eos = NULL)
+# main body --------------------------------------------------------------------
+# read_raw_text()
+# load_raw_records()
+load("data/records_base.RData")
+records <- make_records(records_base)
+load("data/records.RData")
+records <- records |>fix_plac_pos()
+save_ged(records)
+steinmetz <- records |>
+  filter(str_detect(surname, "STEINMETZ"))
 
+# save_ged(steinmetz, "steinmetz")
 
-
-# records_c <- records |>
-#  select(ID,children) |>
-#  unnest(children)
-
-# save(records, file = "data/records.RData")
-# load("data/records.RData")
