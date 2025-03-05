@@ -263,6 +263,7 @@ extract_date_ged <- function(text){
   if (str_detect(date,"BET")) {
     date <- str_replace(date,"-"," AND ")
   }
+  # change format to dd-MON-yyyy
   date <- fix_dates_2(date)
   ged <- paste0("2 DATE ",date,"\n")
   #paste remaining tokens together as PLAC
@@ -541,10 +542,9 @@ collapse_records <- function(records) {
   return(records_x)
 }
 
-records_x$tag_ged[2] |> cat()
-
-
-
+# read header file
+header <- readChar("data/header.ged",nchars=1e6)
+footer <- readChar("data/footer.ged",nchars=1e6)
 
 # make one long gedcom string with line breaks as separators
 records_ged <- collapse_records(records) |>
@@ -556,13 +556,24 @@ records_ged <- collapse_records(records) |>
   pull(gedcom) |>
   str_c(collapse = "")
 
-# read header file
-header <- readChar("data/header.ged",nchars=1e6)
+# remove elements that were not properly tagged
+records_ged <- strsplit(records_ged, "\n")[[1]] |>
+  enframe(name = NULL, value = "record") |>
+  # remove any row that does not begin with a number
+  filter(str_detect(record, "^\\d+ ")) |>
+  filter(!str_detect(record, "^\\d{4}")) |>
+  filter(!str_detect(record, "^\\d+\\.$")) |>
+  pull(record) |>
+  str_c(collapse = "\n") |>
+  # change unrecognized tags to NOTE
+  str_replace_all("GODP","NOTE GODP") |>
+  str_replace_all("WITN","NOTE WITN")
 
-records_ged <- paste0(header,records_ged,"\n0 TRLR") |>
+
+records_ged <- paste0(header,records_ged,footer) |>
   # get rid of space padding
   str_replace_all("  "," ")
-writeChar(records_ged, con = "data/schowe.ged")
+writeChar(records_ged, con = "data/schowe.ged",eos = NULL)
 
 
 
