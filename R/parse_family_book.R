@@ -133,8 +133,7 @@ tag_text <- function(text_vec) {
 
 extract_name <- function(
   text,
-  type = c("raw", "formatted", "surname")
-) {
+  type = c("raw", "formatted", "surname")) {
   # Split the text into words
   words <- str_split(text, "\\s+")[[1]] |>
     # Remove empty elements
@@ -249,6 +248,8 @@ fix_dates_2 <- function(text) {
 # the place name might be followed by a note
 
 extract_date_ged <- function(text) {
+  missing_date <- FALSE
+  missing_place <- FALSE
   #date_regex <- paste0("^(\\d{4}-\\d{2}\\.\\d{2})|\\s+(ABT \\d{4})")
   date_regex <- paste0("^\\d{4}-\\d{2}-\\d{2}")
   # extract date from record
@@ -264,27 +265,31 @@ extract_date_ged <- function(text) {
       start_char <- 3
     } else {
       # placeholder. need to remove date tag while keeping PLAC
-      date <- "Missing"
+      missing_date <- TRUE
       start_char <- 2
+      date <- ""
     }
   }
   if (str_detect(date, "BET")) {
     date <- str_replace(date, "-", " AND ")
   }
-  # change format to dd-MON-yyyy
-  date <- fix_dates_2(date)
-  ged <- paste0("2 DATE ", date, "\n")
   #paste remaining tokens together as PLAC
   if (length(tokens) > start_char - 1) {
     place <- paste0(
       "2 PLAC ",
       paste0(tokens[start_char:length(tokens)], collapse = " "),
-      "\n"
-    )
-    ged <- paste0(ged, place)
-  }
+      "\n")
+    } else {
+      missing_place <- TRUE
+    }
+
+  if  (!missing_date & !missing_place) ged <- paste0("2 DATE ", fix_dates_2(date), "\n", place)
+  if  (!missing_date & missing_place)  ged <-  paste0("2 DATE ", fix_dates_2(date), "\n")
+  if  (missing_date & !missing_place)  ged <- place
+
   return(ged)
 }
+
 extract_date_ged_v <- Vectorize(extract_date_ged)
 
 fix_dates_v <- Vectorize(fix_dates)
@@ -345,7 +350,6 @@ make_ged <- function(text) {
   tag <- str_extract(text, break_tags) |>
     # remove NAs
     discard(is.na)
-  # text <- str_trim(str_remove(text,tag))
   # remove double line breaks
   text <- str_replace_all(text, "\n\n", "\n")
   ged <- switch(
@@ -473,7 +477,7 @@ make_dates_col <- function(records) {
   return(records)
 }
 separate_all_tags <- function(records) {
-  if (PROGRESS) cat('Separating Records GED tags ')
+  if (PROGRESS) cat('Separating Records GED tags\n')
   pattern <- paste0("(", paste(break_tags, collapse = "|"), ")")
   all_records_data <- records |>
     mutate(record = str_split(record, pattern)) |>
@@ -500,30 +504,39 @@ make_header_cols <- function(records) {
   return(records)
 }
 
+# cleaning up tag positions that throw GEDCOM format warnings
 fix_reli_pos <- function(records) {
-# if a record starts with RELI and the record above it starts with NAME, swap
-# the row containing RELI with the row below it, which should be an event
+  # if a record starts with RELI and the record above it starts with NAME, swap
+  # the row containing RELI with the row below it, which should be an event
   for (i in 2:nrow(records)) {
-    if (grepl("^RELI", records$record[i]) && grepl("^NAME", records$record[i-1])) {
+    if (
+      grepl("^RELI", records$record[i]) && grepl("^NAME", records$record[i - 1])
+    ) {
       temp <- records$record[i]
-      records$record[i] <- records$record[i+1]
-      records$record[i+1] <- temp
+      records$record[i] <- records$record[i + 1]
+      records$record[i + 1] <- temp
     }
   }
-  return (records)
+  return(records)
 }
-
-fix_plac_pos <- function(records) {
+fix_plac_pos <- function(records,tag="PLAC") {
   # squish rows with double tags
   for (i in 2:nrow(records)) {
-    if (grepl("^2 PLAC", records$tag_ged[i]) && grepl("^2 PLAC", records$tag_ged[i+1])) {
-      records$record[i] <- paste(records$record[i],
-                                 str_remove(records$record[i+1],paste0("^",tag)))
-      records$record[i+1] <- NA
+    if (
+      grepl("^2 PLAC", records$tag_ged[i]) &&
+        grepl("^2 PLAC", records$tag_ged[i + 1])
+    ) {
+      records$record[i] <- paste(
+        records$record[i],
+        str_remove(records$record[i + 1], paste0("^", tag))
+      )
+      records$record[i + 1] <- NA
 
-      records$tag_ged[i] <- paste(records$tag_ged[i],
-                                 str_remove(records$tag_ged[i+1],paste0("^",tag)))
-      records$tag_ged[i+1] <- NA
+      records$tag_ged[i] <- paste(
+        records$tag_ged[i],
+        str_remove(records$tag_ged[i + 1], paste0("^", tag))
+      )
+      records$tag_ged[i + 1] <- NA
       print(paste("got one at row", i))
     }
   }
@@ -531,16 +544,28 @@ fix_plac_pos <- function(records) {
   return(records)
 }
 
-records2 <- fix_plac_pos(records)
+# records2 <- fix_plac_pos(records2)
 
 make_tag_ged <- function(records) {
-  if (PROGRESS) cat('making GED tags ')
-  records <- fix_reli_pos(records)
+  if (PROGRESS) cat('making GED tags\n ')
+  # records <- fix_reli_pos(records)
   records <- records |>
-    mutate(.before = ID, tag_ged = make_ged_v(record))
-  records <- fix_plac_pos(records)
-  return(records)
+    mutate(.before = ID, tag_ged = make_ged_v(record)) |>
+  # expand tag_ged with linefeeds into separate rows
+  # remove rows where tag_ged is empty
+    separate_rows(record, sep = "\n") |>
+    filter(str_length(tag_ged) > 6) |>
+    identity()
+
+    return(records)
 }
+
+final_cleanup <- function(records){
+  records <- records |>
+    mutate(tag_ged = str_replace_all(tag_ged, "\n\n", "\n"))
+  return(records)
+
+  }
 
 # loader section ---------------------------------------------------------------
 read_raw_text <- function() {
@@ -573,6 +598,7 @@ make_records <- function(records) {
     # now just the main person is left in the record column
     separate_all_tags() |>
     make_tag_ged() |>
+    # final_cleanup() |>
     as_tibble()
   save(records, file = "data/records.RData")
   return(records)
@@ -628,11 +654,9 @@ save_ged <- function(records, outfile = "schowe") {
 # load_raw_records()
 load("data/records_base.RData")
 records <- make_records(records_base)
-load("data/records.RData")
-records <- records |>fix_plac_pos()
+# load("data/records.RData")
+# records <- records |> fix_plac_pos()
 save_ged(records)
 steinmetz <- records |>
   filter(str_detect(surname, "STEINMETZ"))
-
-# save_ged(steinmetz, "steinmetz")
-
+save_ged(steinmetz, "steinmetz")
