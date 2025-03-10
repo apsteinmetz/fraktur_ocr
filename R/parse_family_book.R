@@ -8,42 +8,8 @@ PROGRESS <- TRUE
 
 file_path <- "data/persons.txt"
 
-date_regex <- paste0("^(\\d{2}\\.\\d{2}\\.\\d{4})|\\s+(ABT \\d{4})")
-
-element_tags <- c(
-  "NAME",
-  "DATE",
-  "XREF",
-  "BIRT",
-  "MARR",
-  "DEAT",
-  "BURI",
-  "PLAC",
-  "RELI",
-  "WITN",
-  "GODP",
-  "BAPM",
-  "Eltern:",
-  "Wohnort",
-  "letzter",
-  "NOTE"
-)
-
-break_tags <- c(element_tags)
-
-# insert new item in character vector at line break tags
-# insert_line_breaks <- function(text_vec) {
-#  for (tag in line_break_tags) {
-#    text_vec <- gsub(paste0(tag, " "), paste0("\n", tag, " "), text_vec)
-#  }
-#  return(text_vec)
-# }
-
-#' Function to read the file and extract records
-#'
-#' @param file_path Path to the text file.
-#' @return A list of character vectors, each vector representing a record.
 read_records <- function(file_path) {
+  if (PROGRESS) cat('reading records\n ')
   # Read the file line by line
   lines_raw <- readLines(file_path, encoding = "UTF-8") # Handle character encoding
   # get rid of surname block headers
@@ -98,42 +64,6 @@ read_records <- function(file_path) {
 
   return(records)
 }
-
-tag_text <- function(text_vec) {
-  # Replace special characters
-  # text_vec <- gsub("@I(\\d+)@","@I\\1@ INDI\nNOTE ID=\\1",text_vec)
-  # text_vec <- gsub("<(\\d+)>","NOTE ID\\1",text_vec)
-  text_vec <- gsub("INDI\n", "", text_vec)
-  text_vec <- gsub("o‐o", " Unknown_spouse ", text_vec)
-  text_vec <- gsub("\\*", "BIRT ", text_vec)
-  text_vec <- gsub("um ", " ABT ", text_vec)
-  text_vec <- gsub("vor ", " BEF ", text_vec)
-  text_vec <- gsub("zw.", " BET ", text_vec)
-  text_vec <- gsub("oo", "MARR ", text_vec)
-  text_vec <- gsub(" TZ:", " WITN ", text_vec)
-  text_vec <- gsub("\\(†mit (.*?)\\)", "AGE \\1 ", text_vec)
-  # text_vec <- gsub("\\(†mit(.+)\\)","AGE \\1 ",text_vec)
-  text_vec <- gsub("([0-9]{1,2})J", "\\1 years ", text_vec)
-  text_vec <- gsub("([0-9]{1,2})M", "\\1 months ", text_vec)
-  text_vec <- gsub("([0-9]{1,2})T", "\\1 days ", text_vec)
-  text_vec <- gsub("†", " DEAT ", text_vec)
-  text_vec <- gsub("b\\. ", " BURI ", text_vec)
-  text_vec <- gsub(" AS", " PLAC Alt Schowe ", text_vec)
-  text_vec <- gsub(" NS", " PLAC Neu Schowe ", text_vec)
-  text_vec <- gsub("( Lager [a-zA-Z]+)", " PLAC \\1", text_vec)
-  text_vec <- gsub(" ev\\.", " RELI Evangelical ", text_vec)
-  text_vec <- gsub(" ref\\.", " RELI Reformed ", text_vec)
-  text_vec <- gsub(" kath\\.", " RELI Catholic ", text_vec)
-  text_vec <- gsub(" TZ:", " WITN ", text_vec)
-  text_vec <- gsub(" TP:", " GODP ", text_vec)
-  text_vec <- gsub("~", " BAPM ", text_vec)
-  text_vec <- gsub("# ", "NOTE ", text_vec)
-  text_vec <- gsub("[<>] (\\d{1,4}\\.\\d{1,2})", " XREF \\1 ", text_vec)
-  text_vec <- gsub("[<>] (\\d{1,4})", " XREF \\1 ", text_vec)
-  return(text_vec)
-}
-
-
 
 make_name_col <- function(records) {
   # Extract the person's name from the first line of the record
@@ -294,20 +224,23 @@ read_raw_text <- function() {
   save(raw_data, file = "data/raw_data.RData")
 }
 load_raw_records <- function() {
+  if (PROGRESS) cat('adding tags to raw records\n ')
   load("data/raw_data.RData")
   records_base <- map(raw_data, str_flatten, collapse = "\n") %>%
     enframe(name = NULL, value = "record") |>
     unnest(record) |>
     separate(record, c("ID", "record"), sep = " ", extra = "merge") |>
     mutate(ID = as.integer(str_remove_all(ID, "\\D"))) |>
+    # replace symbols with tag names
     mutate(record = tag_text(record)) |>
     mutate(record = fix_dates_v(record)) |>
     # remove missing persons
     filter(!str_detect(record, "nach Korrektur unbesetzt"))
   save(records_base, file = "data/records_base.RData")
+  return(records_base)
 }
 # processing section ---------------------------------------------------------------
-make_records <- function(records_base) {
+make_records <- function(records_base,SAVE = TRUE) {
   records <- records_base |>
     # peel off layers of info
     make_child_col() |>
@@ -315,14 +248,17 @@ make_records <- function(records_base) {
     make_name_col() |>
     make_header_cols()
     # now just the main person is left in the record column
-    save(records, file = "data/records.RData")
+    if (SAVE) save(records, file = "data/records.RData")
+return(records)
+}
 
+tag_records <- function(records,SAVE=TRUE){
     records_tagged <- records |>
     separate_all_tags() |>
     make_tag_ged() |>
     # final_cleanup() |>
     as_tibble()
-  save(records_tagged, file = "data/records_tagged.RData")
+  if (SAVE) save(records_tagged, file = "data/records_tagged.RData")
   return(records_tagged)
 }
 
@@ -372,13 +308,14 @@ save_ged <- function(records, outfile = "schowe") {
 }
 
 # main body --------------------------------------------------------------------
-# read_raw_text()
-# load_raw_records()
-load("data/records_base.RData")
-records_tagged <- make_records(records_base)
+read_raw_text()
+records_base <- load_raw_records()
+# load("data/records_base.RData")
+records <- make_records(records_base)
+records_tagged <- tag_records(records)
 # load("data/records.RData")
 # records <- records |> fix_plac_pos()
-save_ged(records_tagged)
-steinmetz <- records_tagged |>
-  filter(str_detect(surname, "STEINMETZ"))
-save_ged(steinmetz, "steinmetz")
+# save_ged(records_tagged)
+# steinmetz <- records_tagged |>
+#  filter(str_detect(surname, "STEINMETZ"))
+#save_ged(steinmetz, "steinmetz")

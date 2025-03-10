@@ -1,5 +1,24 @@
 library(tidyverse)
 
+# convert integer to hexadecimal
+int_to_hex <- function(x) {
+  return(as.hexmode(x))
+}
+
+spouses$record[25] |> str_replace(paste0("^(",date_regex,")"),"MARR \\1")
+
+# Example dataset
+data <- tibble(
+  id = 1:3,
+  values = list(1:3, 4:6, 7:9)
+)
+
+# Adding a list column using mutate
+result <- data %>%
+  mutate(squared_values = map(values, ~ .x^2))
+
+print(result)
+
 fix_dates <- function(text){
   # fix dates where the day is missing
   text |> str_replace_all(" (\\.\\d{1,2}\\.\\d{4})","1\\1") |>
