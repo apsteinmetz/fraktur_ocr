@@ -2,13 +2,12 @@
 library(tidyverse)
 
 source("r/gedcom_functions.r")
-
+FILE_PATH <- "data/persons_sm.txt"
 PROGRESS <- TRUE
 # extraction functions ---------------------------------------------------------
 
-file_path <- "data/persons.txt"
 
-read_records <- function(file_path) {
+read_records <- function(file_path=FILE_PATH) {
   if (PROGRESS) cat('reading records\n ')
   # Read the file line by line
   lines_raw <- readLines(file_path, encoding = "UTF-8") # Handle character encoding
@@ -218,9 +217,8 @@ final_cleanup <- function(records){
 
 # loader section ---------------------------------------------------------------
 read_raw_text <- function() {
-  file_path <- "data/persons.txt" # Set file path
-  all_recs <- read_lines(file_path)
-  raw_data <- read_records(file_path)
+  all_recs <- read_lines(FILE_PATH)
+  raw_data <- read_records(FILE_PATH)
   save(raw_data, file = "data/raw_data.RData")
 }
 load_raw_records <- function() {
@@ -273,8 +271,7 @@ collapse_records <- function(records) {
     as_tibble()
   return(records)
 }
-
-save_ged <- function(records, outfile = "schowe") {
+save_ged <- function(records, outfile = "schowe_sm") {
   header <- readChar("data/header.ged", nchars = 1e6)
   footer <- readChar("data/footer.ged", nchars = 1e6)
 
@@ -315,7 +312,7 @@ records <- make_records(records_base)
 records_tagged <- tag_records(records)
 # load("data/records.RData")
 # records <- records |> fix_plac_pos()
-# save_ged(records_tagged)
+save_ged(records_tagged)
 # steinmetz <- records_tagged |>
 #  filter(str_detect(surname, "STEINMETZ"))
 #save_ged(steinmetz, "steinmetz")
