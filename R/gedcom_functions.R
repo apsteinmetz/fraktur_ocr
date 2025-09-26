@@ -371,3 +371,93 @@ separate_all_tags <- function(records) {
     select(-tags)
   return(all_records)
 }
+
+get_person <- function(family_record) {
+  persons <- list()
+  
+  if (length(family_record) == 0) return(persons)
+  
+  # Extract family ID from first line
+  family_id <- str_extract(family_record[1], "(?<=<)\\d+(?=>)")
+  if (is.na(family_id)) return(persons)
+  
+  # Helper function to extract name from a line
+  extract_name <- function(line) {
+    # Remove number prefixes and clean
+    clean_line <- str_replace(line, "^\\d+\\.\\s*", "")
+    clean_line <- str_replace_all(clean_line, "\\b(BIRT|DEAT|MARR|BURI|BAPM|RELI|PLAC|ABT|AGE|XREF)\\b.*$", "")
+    clean_line <- str_trim(clean_line)
+    
+    # Handle "SURNAME Given" format
+    name_match <- str_match(clean_line, "^([A-ZÄÖÜ]+)\\s+([A-Za-zäöüß]+(?:\\s+[A-Za-zäöüß]+)*)")
+    if (!is.na(name_match[1])) {
+      return(paste(name_match[3], name_match[2]))  # "Given SURNAME"
+    }
+    
+    return(clean_line)
+  }
+  
+  # Find person boundaries
+  person_starts <- c()
+  for (i in seq_along(family_record)) {
+    line <- family_record[i]
+    
+    # Head of household
+    if (str_detect(line, "^<\\d+>$")) {
+      person_starts <- c(person_starts, i)
+    }
+    # Child
+    else if (str_detect(line, "^\\d+\\.")) {
+      person_starts <- c(person_starts, i)
+    }
+    # Spouse (name with RELI)
+    else if (str_detect(line, "^[A-ZÄÖÜ]+\\s+[A-Za-zäöüß]+\\s+RELI")) {
+      person_starts <- c(person_starts, i)
+    }
+  }
+  
+  # Add end position
+  person_starts <- c(person_starts, length(family_record) + 1)
+  
+  # Create person counter
+  person_counter <- 1
+  
+  # Process each person
+  for (p in 1:(length(person_starts) - 1)) {
+    start_pos <- person_starts[p]
+    end_pos <- person_starts[p + 1] - 1
+    
+    person_lines <- family_record[start_pos:end_pos]
+    first_line <- person_lines[1]
+    
+    # Determine person_id based on relationship
+    if (str_detect(first_line, "^<\\d+>$")) {
+      # Head of household gets family_id as person_id
+      person_id <- family_id
+      name_line <- if (length(person_lines) > 1) person_lines[2] else ""
+    } else {
+      # All others get sequential person_ids
+      person_id <- as.character(person_counter)
+      person_counter <- person_counter + 1
+      name_line <- first_line
+    }
+    
+    # Extract name
+    name <- extract_name(name_line)
+    
+    # Combine all remaining text as notes
+    notes <- paste(person_lines, collapse = " ")
+    
+    # Create person record
+    person <- list(
+      name = name,
+      person_id = person_id,
+      family_id = family_id,
+      notes = notes
+    )
+    
+    persons[[length(persons) + 1]] <- person
+  }
+  
+  return(persons)
+}
