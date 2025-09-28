@@ -1,12 +1,8 @@
-# parse family records
 library(tidyverse)
 
-source("r/gedcom_functions.r")
+# source("R/gedcom_functions.R")
 FILE_PATH <- "data/persons_sm.txt"
 PROGRESS <- TRUE
-# extraction functions ---------------------------------------------------------
-
-
 read_records <- function(file_path=FILE_PATH) {
   if (PROGRESS) cat('reading records\n ')
   # Read the file line by line
@@ -24,295 +20,133 @@ read_records <- function(file_path=FILE_PATH) {
       i <- i + 1
     }
   }
-  # replace '<num>' with '@I<num>@'
-  lines <- gsub("<(\\d+)>", "@I\\1@ INDI", lines)
   # remove empty lines
   lines <- lines[!grepl("^\\s*$", lines)]
+ return(lines)
+}
 
-  # Identify record start lines (lines starting with "<")
-  record_start_indices <- grep("^@", lines)
+# Example usage
+records_raw <- read_records(FILE_PATH)
 
-  # Handle edge case of no records being found
-  if (length(record_start_indices) == 0) {
-    warning("No records found in the file.")
-    return(list())
-  }
+# apply the tag_text function to each line
+# tagged_lines <- map(records, tag_text) |>
+#   unlist()
 
-  # Extract records.  The person's name is on the line immediately after the record start.
-  records <- list()
-  for (i in seq_along(record_start_indices)) {
-    start_index <- record_start_indices[i]
-    end_index <- ifelse(
-      i < length(record_start_indices),
-      record_start_indices[i + 1] - 1,
-      length(lines)
-    )
+# separate into list of records by splitting at <I\d+> tags
+record_indices <- which(grepl("^<\\d+>", records_raw))
+record_indices <- c(record_indices, length(records_raw) + 1) # add end index
 
-    # Include the person's name line with the record
-    record_lines <- lines[start_index:end_index]
-    if (start_index + 1 <= length(lines)) {
-      if ((start_index + 1) %in% record_start_indices) {
-        #check if the next line is a new record before adding it.
-        record_lines <- lines[start_index:end_index]
-      } else {
-        record_lines <- lines[start_index:(end_index)]
-      }
+records <- list()
+# for loop version
+for (i in seq_along(record_indices[-length(record_indices)])) {
+  if (PROGRESS) cat(i, " ")
+  start_idx <- record_indices[i]
+  end_idx <- record_indices[i + 1] - 1
+  records[[i]] <- records_raw[start_idx:end_idx]
+}
+
+separate_people <- function(family){
+  person_tag <-c("<\\d+>","oo","o‐o","\\d+\\.")
+  # separate into list of records by splitting at person tags
+  person_indices <- which(grepl(paste0("^",person_tag,collapse="|^"), family))
+  person_indices <- c(person_indices, length(family) + 1) # add end index
+  people <- list()
+
+  for (i in seq_along(person_indices[-length(person_indices)])) {
+    start_idx <- person_indices[i]
+    end_idx <- person_indices[i + 1] - 1
+    person <- family[start_idx:end_idx] |> paste(collapse=" ")
+    if (str_detect(person, "oo|o‐o")) {
+      role <- "spouse"
+    } else if (str_detect(person, "^\\d+\\.")) {
+      role <- "child"
+    } else {
+      role <- "primary"
     }
-    records[[i]] <- record_lines # List of character vectors, each vector being a record
+    # assign role based on person_tag
+    people[[i]] <- list(role=role, person=person)
   }
+return(people)
 
-  return(records)
 }
 
-make_name_col <- function(records) {
-  # Extract the person's name from the first line of the record
-  name_records <- records |>
-    mutate(
-      surname = extract_name_v(record, type = "surname"),
-      .before = "record"
-    ) |>
-    mutate(
-      name = extract_name_v(record, type = "formatted"),
-      .before = "record"
-    )
-  return(name_records)
-}
-make_child_col <- function(records) {
-  # Extract the person's name from the first line of the record
-  child_records <- records |>
-    separate_wider_delim(
-      cols = record,
-      delim = regex("\\d+\\. "),
-      names = c(
-        "record",
-        # create columns for up to 20 children
-        "fam1",
-        "fam2",
-        "fam3",
-        "fam4",
-        "fam5",
-        "fam6",
-        "fam7",
-        "fam8",
-        "fam9",
-        "fam10",
-        "fam11",
-        "fam12",
-        "fam13",
-        "fam14",
-        "fam15",
-        "fam16",
-        "fam17",
-        "fam18",
-        "fam19",
-        "fam20"
-      ),
-      too_many = "merge",
-      too_few = "align_start"
-    ) %>%
-    pivot_longer(
-      cols = starts_with("fam"),
-      names_to = "relationship",
-      values_to = "person"
-    ) |>
-    # reduce multiple NAs to just one
-    nest(children = c(relationship, person)) %>%
-    #replace multiple nas with single na
-    mutate(children = map(children, \(x) na.omit(x)))
+people_in_family <- separate_people(records[[7]])
 
-  return(child_records)
-}
-make_spouse_col <- function(records) {
-  # Extract spouse sub-record from MARR tag
-  spouse_records <- records |>
-    separate_wider_delim(
-      cols = record,
-      delim = regex("MARR"),
-      names = c("record", "spouse0"),
-      too_many = "merge",
-      too_few = "align_start"
-    )
-  return(spouse_records)
-}
-make_dates_col <- function(records) {
-  records$birth <- as.Date(rep(NA, nrow(records)))
-  records$death <- as.Date(rep(NA, nrow(records)))
-  for (i in 1:nrow(records)) {
-    records$birth[i] <- extract_date(records$record[i], "BIRT", type = "posix")
-    records$death[i] <- extract_date(records$record[i], "DEAT", type = "posix")
+make_person <- function(record,indiv_id, fam_ids=list(indiv_id),relationship="primary") {
+  person = list(
+    record = record,
+    indiv_id = indiv_id,
+    fam_ids = fam_ids,
+    relationship = relationship
+  )
+  return(person)
+ }
+
+
+
+possible_relationships <- c("primary","spouse_of_primary",
+"child_of_primary","spouse_of_child","child_of_child") |>
+  as_factor()
+
+
+increment_relationship <- function(current_relationship, delta = 1) {
+  current_index <- as.integer(current_relationship)
+  if (current_index < length(levels(current_relationship))) {
+    current_relationship <- levels(current_relationship)[current_index + delta]
+  } else {
+    current_relationship  # Don't increment beyond the last relationship
   }
-  records <- records |> select(ID, surname, name, birth, death, everything())
-  return(records)
-}
-make_header_cols <- function(records) {
-  # Extract the person's name from the first line of the record
-  records <- records |>
-    mutate(.before = ID, ged_indi = make_individual_ged_v(ID, "indi")) |>
-    mutate(.before = ID, ged_fam = make_individual_ged_v(ID, "fam"))
-  return(records)
 }
 
-# cleaning up tag positions that throw GEDCOM format warnings
-fix_reli_pos <- function(records) {
-  # if a record starts with RELI and the record above it starts with NAME, swap
-  # the row containing RELI with the row below it, which should be an event
-  for (i in 2:nrow(records)) {
-    if (
-      grepl("^RELI", records$record[i]) && grepl("^NAME", records$record[i - 1])
-    ) {
-      temp <- records$record[i]
-      records$record[i] <- records$record[i + 1]
-      records$record[i + 1] <- temp
-    }
+make_family <- function(people=people_in_family) {
+family <- list()
+# start with primary individual
+current_relationship <- "primary"
+# extract only number from "<\\d+>"in first element of people_in_family
+indiv_id <- str_match(people[[1]]$person, "<(\\d+)>")[,2]
+fam_id <- indiv_id
+spouse_num <- 0
+family[[1]] <- make_person(people[[1]]$person, indiv_id, fam_ids=list(fam_id), relationship=current_relationship)
+# loop through remaining people incrementing relationship based on tags
+for (i in 2:length(people_in_family)) {
+  person <- people[[i]]$person
+  role <- people[[i]]$role
+  if ((role == "spouse") && (current_relationship == "primary")) {
+    # spouse of primary
+    # increment relationship to next relationship relationship
+    # add"S" and spouse number to  indiv_id to make indiv_id
+    spouse_num <- spouse_num + 1
+    indiv_id <- paste0(fam_id,"S",spouse_num)
+    fam_id <- list(fam_id)
+    current_relationship <- "spouse_of_primary"
+    family[[i]] <- make_person(person, indiv_id, fam_ids=list(fam_id), relationship=current_relationship)
+  } else if ((role == "child") && (str_detect(current_relationship,"^primary|^spouse_of_primary"))) {
+    # child of primary or spouse
+    current_relationship <-"child_of_primary"
+    # extract only number from "<\\d+>"in first element of people_in_family
+    indiv_id <- paste0(fam_id,".",str_match(person, "^(\\d+)\\.")[,2])
+    fam_id <- list(fam_id)
+    family[[i]] <- make_person(person, indiv_id, fam_ids = fam_id, relationship=current_relationship)
+  } else if ((role == "spouse") && (current_relationship == "child_of_primary")) {
+    # spouse of child of primary
+    current_relationship <- "spouse_of_child"
+    # extract only number from "<\\d+>"in first element of people_in_family
+    indiv_id <- str_match(person, "(< |> )(\\d+\\.*\\d*)")[,3]
+    fam_id <- list(fam_id,indiv_id)
+    family[[i]] <- make_person(person, indiv_id, fam_ids=fam_id, relationship=current_relationship)
+  } else if ((role == "spouse") && (current_relationship == "spouse_of_chlild")) {
+    # subsequent marriage spouse of child of primary
+    current_relationship <- "spouse_of_child"
+    # extract only number from "<\\d+>"in first element of people_in_family
+    indiv_id <- str_match(person, "(< |> )(\\d+\\.*\\d*)")[,3]
+    fam_id <- list(fam_id,indiv_id)
+    family[[i]] <- make_person(person, indiv_id, fam_ids=fam_id, relationship=current_relationship)
   }
-  return(records)
 }
-fix_plac_pos <- function(records,tag="PLAC") {
-  # squish rows with double tags
-  for (i in 2:nrow(records)) {
-    if (
-      grepl("^2 PLAC", records$tag_ged[i]) &&
-        grepl("^2 PLAC", records$tag_ged[i + 1])
-    ) {
-      records$record[i] <- paste(
-        records$record[i],
-        str_remove(records$record[i + 1], paste0("^", tag))
-      )
-      records$record[i + 1] <- NA
-
-      records$tag_ged[i] <- paste(
-        records$tag_ged[i],
-        str_remove(records$tag_ged[i + 1], paste0("^", tag))
-      )
-      records$tag_ged[i + 1] <- NA
-      print(paste("got one at row", i))
-    }
-  }
-  records <- records |> filter(!is.na(record))
-  return(records)
+family_df <- map_dfr(family, as_tibble)
+  return(family_df)
 }
 
-# records2 <- fix_plac_pos(records2)
+family <- make_family(people_in_family)
 
-make_tag_ged <- function(records) {
-  if (PROGRESS) cat('making GED tags\n ')
-  # records <- fix_reli_pos(records)
-  records <- records |>
-    mutate(.before = ID, tag_ged = make_ged_v(record)) |>
-  # expand tag_ged with linefeeds into separate rows
-  # remove rows where tag_ged is empty
-    separate_rows(record, sep = "\n") |>
-    filter(str_length(tag_ged) > 6) |>
-    identity()
-
-    return(records)
-}
-
-final_cleanup <- function(records){
-  records <- records |>
-    mutate(tag_ged = str_replace_all(tag_ged, "\n\n", "\n"))
-  return(records)
-
-  }
-
-# loader section ---------------------------------------------------------------
-read_raw_text <- function() {
-  all_recs <- read_lines(FILE_PATH)
-  raw_data <- read_records(FILE_PATH)
-  save(raw_data, file = "data/raw_data.RData")
-}
-load_raw_records <- function() {
-  if (PROGRESS) cat('adding tags to raw records\n ')
-  load("data/raw_data.RData")
-  records_base <- map(raw_data, str_flatten, collapse = "\n") %>%
-    enframe(name = NULL, value = "record") |>
-    unnest(record) |>
-    separate(record, c("ID", "record"), sep = " ", extra = "merge") |>
-    mutate(ID = as.integer(str_remove_all(ID, "\\D"))) |>
-    # replace symbols with tag names
-    mutate(record = tag_text(record)) |>
-    mutate(record = fix_dates_v(record)) |>
-    # remove missing persons
-    filter(!str_detect(record, "nach Korrektur unbesetzt"))
-  save(records_base, file = "data/records_base.RData")
-  return(records_base)
-}
-# processing section ---------------------------------------------------------------
-make_records <- function(records_base,SAVE = TRUE) {
-  records <- records_base |>
-    # peel off layers of info
-    make_child_col() |>
-    make_spouse_col() |>
-    make_name_col() |>
-    make_header_cols()
-    # now just the main person is left in the record column
-    if (SAVE) save(records, file = "data/records.RData")
-return(records)
-}
-
-tag_records <- function(records,SAVE=TRUE){
-    records_tagged <- records |>
-    separate_all_tags() |>
-    make_tag_ged() |>
-    # final_cleanup() |>
-    as_tibble()
-  if (SAVE) save(records_tagged, file = "data/records_tagged.RData")
-  return(records_tagged)
-}
-
-# save records to gedcom file --------------------------------------------------
-# function to group by ID and collapse all records into a single record
-collapse_records <- function(records) {
-  records <- records |>
-    group_by(ID) |>
-    summarize(tag_ged = str_c(tag_ged, collapse = "\n"), .groups = "drop") |>
-    # remove double line breaks
-    mutate(tag_ged = str_replace_all(tag_ged, "\\n\\n", "\n")) |>
-    as_tibble()
-  return(records)
-}
-save_ged <- function(records, outfile = "schowe_sm") {
-  header <- readChar("data/header.ged", nchars = 1e6)
-  footer <- readChar("data/footer.ged", nchars = 1e6)
-
-  # make one long gedcom string with line breaks as separators
-  records_ged <- collapse_records(records) |>
-    left_join(distinct(select(records, ID, ged_indi, ged_fam)), by = "ID") |>
-    # eventually paste spouse and children ged
-    mutate(gedcom = paste0(ged_indi, tag_ged, ged_fam)) |>
-    select(ID, gedcom) |>
-    # combine gedcom into a single character vector
-    pull(gedcom) |>
-    str_c(collapse = "")
-
-  # remove elements that were not properly tagged
-  records_ged <- strsplit(records_ged, "\n")[[1]] |>
-    enframe(name = NULL, value = "record") |>
-    # remove any row that does not begin with a number
-    filter(str_detect(record, "^\\d+ ")) |>
-    filter(!str_detect(record, "^\\d{4}")) |>
-    filter(!str_detect(record, "^\\d+\\.$")) |>
-    pull(record) |>
-    str_c(collapse = "\n") |>
-    # change unrecognized tags to NOTE
-    str_replace_all("GODP", "NOTE GODP") |>
-    str_replace_all("WITN", "NOTE WITN")
-
-  records_ged <- paste0(header, records_ged, footer) |>
-    # get rid of space padding
-    str_replace_all("  ", " ")
-  writeChar(records_ged, con = paste0("data/", outfile, ".ged"), eos = NULL)
-}
-
-# main body --------------------------------------------------------------------
-read_raw_text()
-records_base <- load_raw_records()
-# load("data/records_base.RData")
-records <- make_records(records_base)
-records_tagged <- tag_records(records)
-# load("data/records.RData")
-# records <- records |> fix_plac_pos()
-save_ged(records_tagged)
-# steinmetz <- records_tagged |>
-#  filter(str_detect(surname, "STEINMETZ"))
-#save_ged(steinmetz, "steinmetz")
+# convert family to data frame
