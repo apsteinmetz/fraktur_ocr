@@ -3,7 +3,7 @@ library(tidyverse)
 # source("R/gedcom_functions.R")
 FILE_PATH <- "data/persons_sm.txt"
 PROGRESS <- TRUE
-read_records <- function(file_path=FILE_PATH) {
+read_records <- function(file_path = FILE_PATH) {
   if (PROGRESS) cat('reading records\n ')
   # Read the file line by line
   lines_raw <- readLines(file_path, encoding = "UTF-8") # Handle character encoding
@@ -22,7 +22,7 @@ read_records <- function(file_path=FILE_PATH) {
   }
   # remove empty lines
   lines <- lines[!grepl("^\\s*$", lines)]
- return(lines)
+  return(lines)
 }
 
 # Example usage
@@ -45,17 +45,20 @@ for (i in seq_along(record_indices[-length(record_indices)])) {
   records[[i]] <- records_raw[start_idx:end_idx]
 }
 
-separate_people <- function(family){
-  person_tag <-c("<\\d+>","oo","o‐o","\\d+\\.")
+separate_people <- function(family) {
+  person_tag <- c("<\\d+>", "oo", "o‐o", "\\d+\\.")
   # separate into list of records by splitting at person tags
-  person_indices <- which(grepl(paste0("^",person_tag,collapse="|^"), family))
+  person_indices <- which(grepl(
+    paste0("^", person_tag, collapse = "|^"),
+    family
+  ))
   person_indices <- c(person_indices, length(family) + 1) # add end index
   people <- list()
 
   for (i in seq_along(person_indices[-length(person_indices)])) {
     start_idx <- person_indices[i]
     end_idx <- person_indices[i + 1] - 1
-    person <- family[start_idx:end_idx] |> paste(collapse=" ")
+    person <- family[start_idx:end_idx] |> paste(collapse = " ")
     if (str_detect(person, "oo|o‐o")) {
       role <- "spouse"
     } else if (str_detect(person, "^\\d+\\.")) {
@@ -64,15 +67,19 @@ separate_people <- function(family){
       role <- "primary"
     }
     # assign role based on person_tag
-    people[[i]] <- list(role=role, person=person)
+    people[[i]] <- list(role = role, person = person)
   }
-return(people)
-
+  return(people)
 }
 
-people_in_family <- separate_people(records[[7]])
+people_in_family <- separate_people(records[[1]])
 
-make_person <- function(record,indiv_id, fam_ids=list(indiv_id),relationship="primary") {
+make_person <- function(
+  record,
+  indiv_id,
+  fam_ids = list(indiv_id),
+  relationship = "primary"
+) {
   person = list(
     record = record,
     indiv_id = indiv_id,
@@ -80,12 +87,16 @@ make_person <- function(record,indiv_id, fam_ids=list(indiv_id),relationship="pr
     relationship = relationship
   )
   return(person)
- }
+}
 
 
-
-possible_relationships <- c("primary","spouse_of_primary",
-"child_of_primary","spouse_of_child","child_of_child") |>
+possible_relationships <- c(
+  "primary",
+  "primary_spouse",
+  "primary_child",
+  "primary_child_spouse",
+  "primary_child_child"
+) |>
   as_factor()
 
 
@@ -94,59 +105,122 @@ increment_relationship <- function(current_relationship, delta = 1) {
   if (current_index < length(levels(current_relationship))) {
     current_relationship <- levels(current_relationship)[current_index + delta]
   } else {
-    current_relationship  # Don't increment beyond the last relationship
+    current_relationship # Don't increment beyond the last relationship
   }
 }
+append_to_list <- function(lst, element) {
+  lst[[length(lst) + 1]] <- element
+  lst
+}
 
-make_family <- function(people=people_in_family) {
-family <- list()
-# start with primary individual
-current_relationship <- "primary"
-# extract only number from "<\\d+>"in first element of people_in_family
-indiv_id <- str_match(people[[1]]$person, "<(\\d+)>")[,2]
-fam_id <- indiv_id
-spouse_num <- 0
-family[[1]] <- make_person(people[[1]]$person, indiv_id, fam_ids=list(fam_id), relationship=current_relationship)
-# loop through remaining people incrementing relationship based on tags
-for (i in 2:length(people_in_family)) {
-  person <- people[[i]]$person
-  role <- people[[i]]$role
-  if ((role == "spouse") && (current_relationship == "primary")) {
-    # spouse of primary
-    # increment relationship to next relationship relationship
-    # add"S" and spouse number to  indiv_id to make indiv_id
-    spouse_num <- spouse_num + 1
-    indiv_id <- paste0(fam_id,"S",spouse_num)
-    fam_id <- list(fam_id)
-    current_relationship <- "spouse_of_primary"
-    family[[i]] <- make_person(person, indiv_id, fam_ids=list(fam_id), relationship=current_relationship)
-  } else if ((role == "child") && (str_detect(current_relationship,"^primary|^spouse_of_primary"))) {
-    # child of primary or spouse
-    current_relationship <-"child_of_primary"
-    # extract only number from "<\\d+>"in first element of people_in_family
-    indiv_id <- paste0(fam_id,".",str_match(person, "^(\\d+)\\.")[,2])
-    fam_id <- list(fam_id)
-    family[[i]] <- make_person(person, indiv_id, fam_ids = fam_id, relationship=current_relationship)
-  } else if ((role == "spouse") && (current_relationship == "child_of_primary")) {
-    # spouse of child of primary
-    current_relationship <- "spouse_of_child"
-    # extract only number from "<\\d+>"in first element of people_in_family
-    indiv_id <- str_match(person, "(< |> )(\\d+\\.*\\d*)")[,3]
-    fam_id <- list(fam_id,indiv_id)
-    family[[i]] <- make_person(person, indiv_id, fam_ids=fam_id, relationship=current_relationship)
-  } else if ((role == "spouse") && (current_relationship == "spouse_of_chlild")) {
-    # subsequent marriage spouse of child of primary
-    current_relationship <- "spouse_of_child"
-    # extract only number from "<\\d+>"in first element of people_in_family
-    indiv_id <- str_match(person, "(< |> )(\\d+\\.*\\d*)")[,3]
-    fam_id <- list(fam_id,indiv_id)
-    family[[i]] <- make_person(person, indiv_id, fam_ids=fam_id, relationship=current_relationship)
+
+
+
+# The error is caused by using the global `people_in_family` length inside `make_family()`
+# Families shorter than `length(people_in_family)` trigger out-of-bounds indexing
+len_first <- length(people_in_family)
+lens <- purrr::map_int(all_families, length)
+c(len_first = len_first, min_len = min(lens))
+which(lens < len_first)
+
+# Fix: use the function argument `people`, not the global `people_in_family`
+make_family <- function(people) {
+  family <- list()
+  current_relationship <- "primary"
+  indiv_id <- str_match(people[[1]]$person, "<(\\d+)>")[, 2]
+  fam_id_root <- indiv_id
+  fam_id <- fam_id_root
+  spouse_num <- 0
+  last_child <- NA_integer_
+
+  family[[1]] <- make_person(
+    people[[1]]$person,
+    indiv_id,
+    fam_ids = list(fam_id),
+    relationship = current_relationship
+  )
+
+  if (length(people) >= 2) {
+    for (i in 2:length(people)) {
+      person <- people[[i]]$person
+      role <- people[[i]]$role
+
+      if ((role == "spouse") && (current_relationship == "primary")) {
+        spouse_num <- spouse_num + 1
+        indiv_id <- paste0(fam_id, "S", spouse_num)
+        fam_id <- fam_id_root
+        current_relationship <- "primary_spouse"
+        family[[i]] <- make_person(
+          person,
+          indiv_id,
+          fam_ids = list(fam_id),
+          relationship = current_relationship
+        )
+
+      } else if (role == "child") {
+        current_relationship <- "primary_child"
+        indiv_id <- paste0(fam_id_root, ".", str_match(person, "^(\\d+)\\.")[, 2])
+        fam_id <- fam_id_root
+        last_child <- i
+        family[[i]] <- make_person(
+          person,
+          indiv_id,
+          fam_ids = list(fam_id),
+          relationship = current_relationship
+        )
+
+      } else if ((role == "spouse") && (current_relationship == "primary_child")) {
+        current_relationship <- "primary_child_spouse"
+        indiv_id <- str_match(person, "(< |> )(\\d+\\.*\\d*)")[, 3]
+        fam_id <- indiv_id
+        family[[i]] <- make_person(
+          person,
+          indiv_id,
+          fam_ids = list(fam_id),
+          relationship = current_relationship
+        )
+        if (!is.na(last_child)) {
+          family[[last_child]]$fam_ids <- append_to_list(
+            family[[last_child]]$fam_ids,
+            fam_id
+          )
+        }
+
+      } else if ((role == "spouse") && (current_relationship == "primary_child_spouse")) {
+        current_relationship <- "primary_child_spouse"
+        indiv_id <- str_match(person, "(< |> )(\\d+\\.*\\d*)")[, 3]
+        fam_id <- indiv_id
+        family[[i]] <- make_person(
+          person,
+          indiv_id,
+          fam_ids = list(fam_id),
+          relationship = current_relationship
+        )
+        if (!is.na(last_child)) {
+          family[[last_child]]$fam_ids <- append_to_list(
+            family[[last_child]]$fam_ids,
+            fam_id
+          )
+        }
+      }
+    }
   }
-}
-family_df <- map_dfr(family, as_tibble)
-  return(family_df)
+
+  map_dfr(
+    family,
+    ~tibble(
+      record = .x$record,
+      indiv_id = .x$indiv_id,
+      fam_ids = list(.x$fam_ids),
+      relationship = .x$relationship
+    )
+  )
 }
 
-family <- make_family(people_in_family)
+people_in_family <- separate_people(records[[1]])
+all_families <- records |>
+  map(separate_people) |>
+  map(make_family) |>
+  bind_rows()
 
-# convert family to data frame
+
