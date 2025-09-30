@@ -2,6 +2,7 @@
 date_regex <- paste0("(\\d{2}\\.\\d{2}\\.\\d{4})|(ABT \\d{4})")
 date_regex_2 <- paste0("(\\d{4}-\\d{2}-\\d{2})|(ABT \\d{4})")
 name_regex <- "([ßÖÜÄA-Z\\.]+ [ßÖÜÄA-Z][öäüa-z]+( [ÖÜÄA-Z][öäüa-z]+)?)"
+# name_regex <- "([ßÖÜÄA-Z\\.]+ [ßÖÜÄA-Z][öäüa-z]+( [ÖÜÄA-Z][öäüa-z]+)?)"
 # name_regex <- "([ÖÜÄA-Z]+ [ÖÜÄA-Z][öäüa-z]+)"
 
 break_tags <- c(
@@ -57,7 +58,7 @@ tag_text <- function(text_vec) {
   return(text_vec)
 }
 
-extract_name <- function(text, type = c("raw", "formatted", "surname")) {
+extract_name_new <- function(text, type = c("raw", "formatted", "surname")) {
    # remove break tags from text
    text <- str_remove_all(text, paste(break_tags, collapse = "|"))
    name_vec <- text |> str_extract(name_regex)
@@ -112,6 +113,65 @@ extract_name_old <- function(
   )
   return(trimws(name))
 }
+
+library(stringr)
+library(dplyr)
+
+library(stringr)
+library(dplyr)
+library(purrr)
+
+extract_name <- function(x) {
+  stop_tokens <- c(
+    "ABT", "um", "AGE", "siehe", "lebt", "als",
+    "Evangelical", "Catholic", "ref\\.", "ev\\.",
+    "\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}",   # dates
+    "Januar","Februar","März","April","Mai","Juni","Juli","August",
+    "September","Oktober","November","Dezember",
+    "Jan","Feb","Mar","Apr","Jun","Jul","Aug","Sep","Oct","Nov","Dec"
+  )
+  stop_regex <- str_c("\\b(", str_c(stop_tokens, collapse="|"), ")\\b")
+  
+  x %>%
+    # remove record numbering like "<1>" or "1."
+    str_remove_all("^<\\d+>\\s*") %>%
+    str_remove_all("^\\d+\\.\\s*") %>%
+    str_squish() %>%
+    str_split("\\s+") %>%
+    map_chr(function(tokens) {
+      if (length(tokens) == 0) return(NA_character_)
+      
+      # detect marriage tags ("oo" or "o-o")
+      if (tokens[1] %in% c("oo","o-o")) {
+        # skip the tag and any immediate dates/places until first "real" name
+        # find first token that looks like a name (starts with capital letter, not in stop list)
+        start_idx <- which(str_detect(tokens, "^[A-ZÄÖÜ][a-zäöüßA-ZÄÖÜ-]*"))[1]
+        tokens <- tokens[start_idx:length(tokens)]
+      }
+      
+      # stop at first "non-name token"
+      cut_idx <- which(str_detect(tokens, stop_regex))
+      if (length(cut_idx) > 0) {
+        tokens <- tokens[1:(min(cut_idx) - 1)]
+      }
+      str_squish(str_c(tokens, collapse = " "))
+    })
+}
+
+# ---- Example ----
+test_lines <- c(
+  "<1> ABRAHAM Stefan",
+  "RHUR Karolina  Evangelical    ABT 1811    11.04.1866  Neu Schowe",
+  "2. Abraham Franziska   ABT 1846",
+  "ALBERT Hans Jakob    11.09.1709 Mettweiler",
+  "ALLGAIER Matthias   29.09.1905    29.05.1943 Cleveland, Ohio",
+  "WILSON Thelma Florence   22.06.1907 Elyria    01.01.1994",
+  "oo 23.04.1865 Neu Werbas GEYER Magdalena  Evangelical    ABT 1845",
+  "o-o 15.08.1902 Neu Schowe HERTZ Anna Maria   ABT 1875"
+)
+
+extract_name(test_lines)
+
 
 extract_name_v <- Vectorize(extract_name)
 
@@ -461,3 +521,4 @@ get_person <- function(family_record) {
   
   return(persons)
 }
+

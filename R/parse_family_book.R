@@ -1,6 +1,7 @@
 library(tidyverse)
 
-# source("R/gedcom_functions.R")
+source("R/gedcom_functions.R")
+source("R/fun_parse_person.R")
 FILE_PATH <- "data/persons_sm.txt"
 PROGRESS <- TRUE
 read_records <- function(file_path = FILE_PATH) {
@@ -72,7 +73,7 @@ separate_people <- function(family) {
   return(people)
 }
 
-people_in_family <- separate_people(records[[1]])
+# people_in_family <- separate_people(records[[1]])
 
 make_person <- function(
   record,
@@ -82,6 +83,7 @@ make_person <- function(
 ) {
   person = list(
     record = record,
+    elements = parse_person_lines(record),
     indiv_id = indiv_id,
     fam_ids = fam_ids,
     relationship = relationship
@@ -113,17 +115,7 @@ append_to_list <- function(lst, element) {
   lst
 }
 
-
-
-
-# The error is caused by using the global `people_in_family` length inside `make_family()`
-# Families shorter than `length(people_in_family)` trigger out-of-bounds indexing
-len_first <- length(people_in_family)
-lens <- purrr::map_int(all_families, length)
-c(len_first = len_first, min_len = min(lens))
-which(lens < len_first)
-
-# Fix: use the function argument `people`, not the global `people_in_family`
+# take a list of people in  a surname group and return a tibble with one row per person
 make_family <- function(people) {
   family <- list()
   current_relationship <- "primary"
@@ -209,18 +201,17 @@ make_family <- function(people) {
   map_dfr(
     family,
     ~tibble(
-      record = .x$record,
+      record = paste(.x$record, collapse = " "),
+      name = .x$elements[[1]]$name,
+      events = list(.x$elements[[1]]$events),
       indiv_id = .x$indiv_id,
       fam_ids = list(.x$fam_ids),
       relationship = .x$relationship
     )
   )
 }
-
-people_in_family <- separate_people(records[[1]])
+# people_in_family <- separate_people(records[[1]])
 all_families <- records |>
   map(separate_people) |>
-  map(make_family) |>
-  bind_rows()
-
+  map(make_family)
 
