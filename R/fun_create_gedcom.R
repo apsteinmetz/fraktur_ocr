@@ -1,15 +1,19 @@
-# fun create gedcom snippets
 families_to_gedcom <- function(all_families) {
   map(all_families, function(family_tibble) {
     gedcom_lines <- character()
+    cat("Processing family with ", nrow(family_tibble), " members...\n")
+    # display first row of family_tibble
+    cat(family_tibble[1, ]$record,"\n")
+    
+    # Get the primary family ID (first fam_id from first person)
+    primary_fam_id <- family_tibble$fam_ids[[1]][1]
     
     # Process each person in the family
     for (i in 1:nrow(family_tibble)) {
       person <- family_tibble[i, ]
-      
       # Create individual record
       gedcom_lines <- c(gedcom_lines, paste0("0 @I", person$indiv_id, "@ INDI"))
-      
+
       # Add name in GEDCOM format
       if (!is.na(person$name) && person$name != "") {
         # Split name into given names and surname
@@ -23,85 +27,102 @@ families_to_gedcom <- function(all_families) {
         }
         gedcom_lines <- c(gedcom_lines, paste0("1 NAME ", gedcom_name))
       }
-      
-      # Process events from the events tibble
-      events <- person$events[[1]]
-      if (nrow(events) > 0) {
-        for (j in 1:nrow(events)) {
-          event <- events[j, ]
-          
-          # Build event line
-          event_line <- paste0("1 ", event$event)
-          
-          # Add date if present
-          if (!is.na(event$date) && event$date != "") {
-            event_line <- c(event_line, paste0("2 DATE ", event$date))
+
+      # Process events from the events tibble - handle NULL/empty events
+      # EXCLUDE MARR events from individual records
+      events <- if (length(person$events) > 0) person$events[[1]] else NULL
+      if (!is.null(events) && nrow(events) > 0) {
+        # Filter out MARR events - they belong in family records only
+        non_marriage_events <- events |> filter(event != "MARR")
+        
+        if (nrow(non_marriage_events) > 0) {
+          for (j in 1:nrow(non_marriage_events)) {
+            event <- non_marriage_events[j, ]
+
+            # Build event line
+            event_line <- paste0("1 ", event$event)
+
+            # Add date if present
+            if (!is.na(event$date) && event$date != "") {
+              event_line <- c(event_line, paste0("2 DATE ", event$date))
+            }
+
+            # Add place if present
+            if (!is.na(event$place) && event$place != "") {
+              event_line <- c(event_line, paste0("2 PLAC ", event$place))
+            }
+
+            gedcom_lines <- c(gedcom_lines, event_line)
           }
-          
-          # Add place if present
-          if (!is.na(event$place) && event$place != "") {
-            event_line <- c(event_line, paste0("2 PLAC ", event$place))
-          }
-          
-          gedcom_lines <- c(gedcom_lines, event_line)
         }
       }
+
+      # Add family links - preserve ALL family links in INDI blocks
+      person_fam_ids <- person$fam_ids[[1]]
       
-      # Add family links
-      for (fam_id in person$fam_ids[[1]]) {
-        if (person$relationship %in% c("primary", "primary_spouse")) {
+      if (person$relationship == "primary_child_spouse") {
+        # Child spouses are linked to their own marriage family
+        for (fam_id in person_fam_ids) {
           gedcom_lines <- c(gedcom_lines, paste0("1 FAMS @F", fam_id, "@"))
-        } else {
-          gedcom_lines <- c(gedcom_lines, paste0("1 FAMC @F", fam_id, "@"))
+        }
+      } else if (person$relationship %in% c("primary", "primary_spouse")) {
+        # Primary persons link as spouse to families
+        for (fam_id in person_fam_ids) {
+          gedcom_lines <- c(gedcom_lines, paste0("1 FAMS @F", fam_id, "@"))
+        }
+      } else {
+        # Children link to families
+        for (fam_id in person_fam_ids) {
+          if (fam_id == primary_fam_id) {
+            # Link as child to primary family
+            gedcom_lines <- c(gedcom_lines, paste0("1 FAMC @F", fam_id, "@"))
+          } else {
+            # Link as spouse to other marriage families
+            gedcom_lines <- c(gedcom_lines, paste0("1 FAMS @F", fam_id, "@"))
+          }
         }
       }
     }
+
+    # Create ONLY ONE family record - the primary family
+    gedcom_lines <- c(gedcom_lines, paste0("0 @F", primary_fam_id, "@ FAM"))
+    cat("Creating single family record for:", primary_fam_id, "\n")
     
-    # Create family records based on relationships
-    family_ids <- unique(unlist(family_tibble$fam_ids))
-    
-    for (fam_id in family_ids) {
-      gedcom_lines <- c(gedcom_lines, paste0("0 @F", fam_id, "@ FAM"))
-      
-      # Find husband (primary person)
-      husband <- family_tibble |> filter(relationship == "primary")
-      if (nrow(husband) > 0) {
-        gedcom_lines <- c(gedcom_lines, paste0("1 HUSB @I", husband$indiv_id[1], "@"))
-      }
-      
-      # Find wife (primary_spouse)
-      wife <- family_tibble |> filter(relationship == "primary_spouse")
-      if (nrow(wife) > 0) {
-        gedcom_lines <- c(gedcom_lines, paste0("1 WIFE @I", wife$indiv_id[1], "@"))
-      }
-      
-      # Find children for this family
-      children <- family_tibble |> 
-        filter(map_lgl(fam_ids, ~fam_id %in% .x) & 
-               relationship %in% c("primary_child", "primary_child_child"))
-      
-      for (k in 1:nrow(children)) {
-        gedcom_lines <- c(gedcom_lines, paste0("1 CHIL @I", children$indiv_id[k], "@"))
-      }
-      
-      # Add marriage events from spouse records
-      spouse_events <- family_tibble |> 
-        filter(relationship == "primary_spouse") |>
-        pull(events)
-      
-      if (length(spouse_events) > 0) {
-        spouse_events_df <- spouse_events[[1]]
-        marriage_events <- spouse_events_df |> filter(event == "MARR")
-        
+    # Find husband (primary person)
+    husband <- family_tibble |> filter(relationship == "primary")
+    if (nrow(husband) > 0) {
+      gedcom_lines <- c(gedcom_lines, paste0("1 HUSB @I", husband$indiv_id[1], "@"))
+    }
+
+    # Find wife (primary_spouse)
+    wife <- family_tibble |> filter(relationship == "primary_spouse")
+    if (nrow(wife) > 0) {
+      gedcom_lines <- c(gedcom_lines, paste0("1 WIFE @I", wife$indiv_id[1], "@"))
+    }
+
+    # Find all children of this primary family
+    children <- family_tibble |>
+      filter(relationship == "primary_child")
+
+    for (k in 1:nrow(children)) {
+      gedcom_lines <- c(gedcom_lines, paste0("1 CHIL @I", children$indiv_id[k], "@"))
+    }
+
+    # Add marriage events from primary spouse - handle NULL/empty events
+    if (nrow(wife) > 0) {
+      spouse_events <- if (length(wife$events) > 0) wife$events[[1]] else NULL
+      if (!is.null(spouse_events) && nrow(spouse_events) > 0) {
+        marriage_events <- spouse_events |> filter(event == "MARR")
+
         if (nrow(marriage_events) > 0) {
           for (m in 1:nrow(marriage_events)) {
             marriage <- marriage_events[m, ]
             gedcom_lines <- c(gedcom_lines, "1 MARR")
-            
+
             if (!is.na(marriage$date) && marriage$date != "") {
               gedcom_lines <- c(gedcom_lines, paste0("2 DATE ", marriage$date))
             }
-            
+
             if (!is.na(marriage$place) && marriage$place != "") {
               gedcom_lines <- c(gedcom_lines, paste0("2 PLAC ", marriage$place))
             }
@@ -109,15 +130,13 @@ families_to_gedcom <- function(all_families) {
         }
       }
     }
-    
+
     # Return as single string with newlines
     paste(gedcom_lines, collapse = "\n")
   })
 }
-
-# Convert all families to GEDCOM snippets
-gedcom_snippets <- families_to_gedcom(all_families)
-
+# Update your GEDCOM snippets
+gedcom_snippets <- families_to_gedcom(all_families[1])
 # combine all snippets into a single GEDCOM file content with a header and footer
 gedcom_header <- "0 HEAD\n1 SOUR RPackage\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8"
 gedcom_footer <- "0 TRLR"

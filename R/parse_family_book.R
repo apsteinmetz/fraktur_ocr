@@ -2,7 +2,7 @@ library(tidyverse)
 
 source("R/gedcom_functions.R")
 source("R/fun_parse_person.R")
-FILE_PATH <- "data/persons_sm.txt"
+FILE_PATH <- "data/banyai.txt"
 PROGRESS <- TRUE
 read_records <- function(file_path = FILE_PATH) {
   if (PROGRESS) cat('reading records\n ')
@@ -17,7 +17,7 @@ read_records <- function(file_path = FILE_PATH) {
       i <- i + 2 #skip this and the next line
     } else {
       lines <- c(lines, lines_raw[i])
-      cat(lines[i], "\n")
+      # cat(lines[i], "\n")
       i <- i + 1
     }
   }
@@ -75,20 +75,34 @@ separate_people <- function(family) {
 
 # people_in_family <- separate_people(records[[1]])
 
-make_person <- function(
-  record,
-  indiv_id,
-  fam_ids = list(indiv_id),
-  relationship = "primary"
-) {
-  person = list(
+make_person <- function(record, indiv_id, fam_ids = list(indiv_id), relationship = "primary") {
+  parsed <- parse_person_lines(record)[[1]]
+  
+  # Use XREF indiv_id if present, otherwise use provided indiv_id
+  final_indiv_id <- if (!is.null(parsed$xref_indiv_id)) {
+    parsed$xref_indiv_id
+  } else {
+    indiv_id
+  }
+  
+  # Add XREF fam_id to the fam_ids list if present
+  # Ensure fam_ids is always a flat character vector
+  base_fam_ids <- unlist(fam_ids)  # Flatten any nested lists
+  
+  final_fam_ids <- if (!is.null(parsed$xref_fam_id)) {
+    unique(c(base_fam_ids, parsed$xref_fam_id))
+  } else {
+    base_fam_ids
+  }
+  
+  tibble(
     record = record,
-    elements = parse_person_lines(record),
-    indiv_id = indiv_id,
-    fam_ids = fam_ids,
+    name = parsed$name,
+    events = list(parsed$events),
+    indiv_id = final_indiv_id,
+    fam_ids = list(final_fam_ids),  # Always wrap the character vector in list()
     relationship = relationship
   )
-  return(person)
 }
 
 
@@ -115,11 +129,11 @@ append_to_list <- function(lst, element) {
   lst
 }
 
-# take a list of people in  a surname group and return a tibble with one row per person
 make_family <- function(people) {
   family <- list()
   current_relationship <- "primary"
   indiv_id <- str_match(people[[1]]$person, "<(\\d+)>")[, 2]
+  cat(indiv_id, "\n")
   fam_id_root <- indiv_id
   fam_id <- fam_id_root
   spouse_num <- 0
@@ -163,36 +177,42 @@ make_family <- function(people) {
 
       } else if ((role == "spouse") && (current_relationship == "primary_child")) {
         current_relationship <- "primary_child_spouse"
-        indiv_id <- str_match(person, "(< |> )(\\d+\\.*\\d*)")[, 3]
-        fam_id <- indiv_id
+        # Let make_person handle the XREF extraction
         family[[i]] <- make_person(
           person,
-          indiv_id,
-          fam_ids = list(fam_id),
+          paste0(fam_id_root, "S", spouse_num + 1), # fallback ID
+          fam_ids = list(fam_id_root),
           relationship = current_relationship
         )
+        
+        # Get the actual fam_id from the created person (could be from XREF)
+        actual_fam_id <- str_extract(family[[i]]$indiv_id, "^[0-9]+")
+        
         if (!is.na(last_child)) {
-          family[[last_child]]$fam_ids <- append_to_list(
-            family[[last_child]]$fam_ids,
-            fam_id
-          )
+          family[[last_child]]$fam_ids <- list(unique(c(
+            unlist(family[[last_child]]$fam_ids),  # Flatten any nested structure
+            actual_fam_id
+          )))
         }
 
       } else if ((role == "spouse") && (current_relationship == "primary_child_spouse")) {
         current_relationship <- "primary_child_spouse"
-        indiv_id <- str_match(person, "(< |> )(\\d+\\.*\\d*)")[, 3]
-        fam_id <- indiv_id
+        # Let make_person handle the XREF extraction
         family[[i]] <- make_person(
           person,
-          indiv_id,
-          fam_ids = list(fam_id),
+          paste0(fam_id_root, "S", spouse_num + 1), # fallback ID
+          fam_ids = list(fam_id_root),
           relationship = current_relationship
         )
+        
+        # Get the actual fam_id from the created person (could be from XREF)
+        actual_fam_id <- str_extract(family[[i]]$indiv_id, "^[0-9]+")
+        
         if (!is.na(last_child)) {
-          family[[last_child]]$fam_ids <- append_to_list(
-            family[[last_child]]$fam_ids,
-            fam_id
-          )
+          family[[last_child]]$fam_ids <- list(unique(c(
+            unlist(family[[last_child]]$fam_ids),  # Flatten any nested structure
+            actual_fam_id
+          )))
         }
       }
     }
@@ -202,16 +222,19 @@ make_family <- function(people) {
     family,
     ~tibble(
       record = paste(.x$record, collapse = " "),
-      name = .x$elements[[1]]$name,
-      events = list(.x$elements[[1]]$events),
+      name = rearrange_name(.x$name),
+      events = list(.x$events[[1]]),
       indiv_id = .x$indiv_id,
-      fam_ids = list(.x$fam_ids),
+      fam_ids = .x$fam_ids,
       relationship = .x$relationship
     )
   )
 }
+
 # people_in_family <- separate_people(records[[1]])
 all_families <- records |>
   map(separate_people) |>
   map(make_family)
 
+# save all_families as a file
+saveRDS(all_families, file = "data/all_families.rds")

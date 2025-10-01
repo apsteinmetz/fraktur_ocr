@@ -4,6 +4,26 @@ library(dplyr)
 library(tibble)
 
 # ------------ helpers ------------
+# Helper function to rearrange names from surname-first to given-first
+rearrange_name <- function(name) {
+  if (is.na(name) || name == "") return(name)
+  
+  # Split the name into parts
+  name_parts <- str_split(name, "\\s+")[[1]]
+  
+  if (length(name_parts) < 2) return(name)
+  
+  # Remove commas from parts
+  name_parts <- str_remove_all(name_parts, ",")
+  
+  # First part is typically the surname, rest are given names
+  surname <- name_parts[1]
+  given_names <- name_parts[-1]
+  
+  # Rearrange to given names first, then surname
+  paste(c(given_names, surname), collapse = " ")
+}
+
 .cap_word <- function(tok) str_detect(tok, "^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\\-]+,?$")
 
 .place_prefixes <- c("Neu","Alt","Groß","Gross","Klein","Ober","Unter","St\\.","Sankt","Bad")
@@ -248,7 +268,60 @@ parse_person_lines <- function(text_lines) {
   tokenized <- str_split(cleaned, "\\s+")
 
   map(tokenized, function(tokens) {
-    name_res <- .extract_name_tokens_mark(tokens)
+    # Check for XREF pattern and extract indiv_id and fam_id
+    full_text <- paste(tokens, collapse = " ")
+    xref_match <- str_extract(full_text, "XREF ([0-9]+\\.?[0-9]*)")
+    extracted_indiv_id <- if (!is.na(xref_match)) {
+      str_remove(xref_match, "XREF ")
+    } else {
+      NA_character_
+    }
+    extracted_fam_id <- if (!is.na(extracted_indiv_id)) {
+      str_extract(extracted_indiv_id, "^[0-9]+")
+    } else {
+      NA_character_
+    }
+    
+    # Extract name, handling XREF cases differently
+    if (!is.na(extracted_indiv_id)) {
+      # For XREF records, name comes before the 'XREF' token
+      xref_pos <- which(tokens == "XREF")
+      if (length(xref_pos) > 0) {
+        name_tokens <- tokens[1:(xref_pos[1] - 1)]
+        
+        # Extract capitalized words from the name part
+        cap_tokens <- name_tokens[str_detect(name_tokens, "^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\\-]+")]
+        
+        # Handle witnesses (max 2) + spouse name
+        if (length(cap_tokens) > 2) {
+          # More than 2 capitalized words - likely witnesses + spouse
+          # Last surname is the spouse surname, second-to-last might be given name
+          spouse_surname <- cap_tokens[length(cap_tokens)]
+          
+          # Look for a capitalized given name that comes right before the surname
+          surname_pos <- which(name_tokens == spouse_surname)
+          if (length(surname_pos) > 0 && surname_pos[1] > 1) {
+            potential_given <- name_tokens[surname_pos[1] - 1]
+            if (str_detect(potential_given, "^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\\-]+")) {
+              spouse_name <- paste(potential_given, spouse_surname)
+            } else {
+              spouse_name <- spouse_surname
+            }
+          } else {
+            spouse_name <- spouse_surname
+          }
+          name_res <- list(name = spouse_name, idx = integer())
+        } else {
+          # 2 or fewer capitalized words, use normal extraction
+          name_res <- .extract_name_tokens_mark(tokens)
+        }
+      } else {
+        name_res <- .extract_name_tokens_mark(tokens)
+      }
+    } else {
+      name_res <- .extract_name_tokens_mark(tokens)
+    }
+    
     used <- rep(FALSE, length(tokens))
     if (length(name_res$idx)) used[name_res$idx] <- TRUE
 
@@ -256,19 +329,30 @@ parse_person_lines <- function(text_lines) {
     events <- ev_res$events
     used   <- ev_res$used
 
-    # leftover → NOTE
-    leftover <- str_squish(paste(tokens[!used], collapse = " "))
-    if (!identical(leftover, "")) {
+    # leftover → NOTE (exclude XREF pattern)
+    leftover_tokens <- tokens[!used]
+    leftover_tokens <- leftover_tokens[!str_detect(leftover_tokens, "^XREF$|^[0-9]+\\.[0-9]*$")]
+    leftover <- str_squish(paste(leftover_tokens, collapse = " "))
+    
+    if (!identical(leftover, "") && leftover != "XREF") {
       events <- bind_rows(
         events,
         tibble(event = "NOTE", date = NA_character_, place = NA_character_, text = leftover)
       )
     }
 
-    list(
+    result <- list(
       name   = name_res$name,
       events = events
     )
+    
+    # Add extracted XREF information if present
+    if (!is.na(extracted_indiv_id)) {
+      result$xref_indiv_id <- extracted_indiv_id
+      result$xref_fam_id <- extracted_fam_id
+    }
+    
+    result
   })
 }
 
