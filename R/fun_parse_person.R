@@ -16,12 +16,32 @@ rearrange_name <- function(name) {
   # Remove commas from parts
   name_parts <- str_remove_all(name_parts, ",")
   
-  # First part is typically the surname, rest are given names
-  surname <- name_parts[1]
-  given_names <- name_parts[-1]
+  # The current extraction gives us names like "Müller BANYAI Philipp"
+  # We need to identify the pattern and rearrange correctly
   
-  # Rearrange to given names first, then surname
-  paste(c(given_names, surname), collapse = " ")
+  # Strategy: Find the all-caps word (main surname) and any mixed-case words
+  all_caps_words <- name_parts[str_detect(name_parts, "^[A-ZÄÖÜ]+$")]
+  mixed_case_words <- name_parts[str_detect(name_parts, "^[A-ZÄÖÜ][a-zäöüß]+")]
+  
+  # The main surname is typically the all-caps word
+  # Given names are typically mixed-case words
+  if (length(all_caps_words) >= 1 && length(mixed_case_words) >= 1) {
+    # Standard case: we have both surname and given names
+    main_surname <- all_caps_words[1]  # First all-caps word is main surname
+    given_names <- mixed_case_words
+    
+    # Check for additional surname parts (like "Müller" before "BANYAI")
+    other_parts <- name_parts[!name_parts %in% c(main_surname, given_names)]
+    
+    # Combine: given names first, then all surname parts
+    result_parts <- c(given_names, other_parts, main_surname)
+    paste(result_parts, collapse = " ")
+  } else {
+    # Fallback: assume first word is surname, rest are given names
+    surname <- name_parts[1]
+    given_names <- name_parts[-1]
+    paste(c(given_names, surname), collapse = " ")
+  }
 }
 
 .cap_word <- function(tok) str_detect(tok, "^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\\-]+,?$")
@@ -50,15 +70,17 @@ rearrange_name <- function(name) {
 # returns list(name = <chr>, idx = <integer indices consumed for name>)
 .extract_name_tokens_mark <- function(tokens) {
   if (!length(tokens)) return(list(name = NA_character_, idx = integer()))
-  stop_regex <- "^(ABT|BEF|BET|AGE|Evangelical|Catholic|Reformed|REL[Ii]|\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}|\\d{1,2}\\.\\d{1,2}\\.\\d{2}|\\d{4}|MARR|BIRT|BAPM|DEAT|BURI|PLAC|NOTE|WITN|GODP|XREF)$"
+  stop_regex <- "^(ABT|BEF|BET|AGE|Evangelical|Catholic|Reformed|REL[Ii]|\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}|\\d{1,2}\\.\\d{1,2}\\.\\d{2}|\\d{4}|MARR|BIRT|BAPM|DEAT|BURI|PLAC|NOTE|GODP|XREF)$"
   is_date <- function(tok) str_detect(tok, "^\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}$")
 
   i <- 1L
 
   if (tokens[1] == "MARR") {
     i <- 2L
+    # Skip dates
     while (i <= length(tokens) && is_date(tokens[i])) i <- i + 1L
 
+    # Skip place if present
     if (i <= length(tokens) && tokens[i] == "PLAC") {
       i <- i + 1L
       while (i <= length(tokens)) {
@@ -69,10 +91,45 @@ rearrange_name <- function(name) {
         i <- i + 1L
       }
     } else {
+      # Skip place tokens even without PLAC tag
       while (i <= length(tokens)) {
+        if (str_detect(tokens[i], stop_regex)) break
         if (.is_prefix_place_pair(tokens[i], tokens[i+1])) { i <- i + 2L; next }
         if (.is_placeish(tokens[i])) { i <- i + 1L; next }
-        break
+        if (.cap_word(tokens[i])) break
+        i <- i + 1L
+      }
+    }
+    
+    # Skip WITN (witness) section entirely
+    if (i <= length(tokens) && tokens[i] == "WITN") {
+      i <- i + 1L  # Skip "WITN" token
+      
+      # Skip all witness names until we hit a stopping condition or likely person name
+      while (i <= length(tokens)) {
+        current_token <- tokens[i]
+        
+        # Stop if we hit XREF or other stop tokens (except WITN which we're handling)
+        if (current_token == "XREF" || str_detect(current_token, "^(ABT|BEF|BET|AGE|Evangelical|Catholic|Reformed|REL[Ii]|\\d{1,2}\\.\\d{1,2}\\.\\d{2,4}|\\d{1,2}\\.\\d{1,2}\\.\\d{2}|\\d{4}|BIRT|BAPM|DEAT|BURI|PLAC|NOTE|GODP)$")) break
+        
+        # If it's a capitalized word, it could be a witness or the person's name
+        if (.cap_word(current_token)) {
+          # Look ahead to see if this starts the person's name
+          # If we see 2 consecutive capitalized words followed by XREF, it's likely the person
+          if (i + 1 <= length(tokens) && .cap_word(tokens[i + 1]) && 
+              i + 2 <= length(tokens) && tokens[i + 2] == "XREF") {
+            # This looks like the person's name - stop skipping
+            break
+          }
+          # Otherwise, assume it's still a witness name and continue
+          i <- i + 1L
+        } else if (current_token == "," || str_detect(current_token, "^,$")) {
+          # Skip commas between witness names
+          i <- i + 1L
+        } else {
+          # If we hit something that's not a name or comma, we're done with witnesses
+          break
+        }
       }
     }
   }
@@ -82,16 +139,14 @@ rearrange_name <- function(name) {
   while (j <= length(tokens)) {
     tk <- tokens[j]
     if (str_detect(tk, stop_regex)) break
+    if (tk == "XREF") break  # Stop at XREF token
     name_idx <- c(name_idx, j)
-    if (length(name_idx) >= 2 &&
-        (j == length(tokens) || str_detect(tokens[j+1], stop_regex))) break
     j <- j + 1L
   }
 
   out <- if (length(name_idx)) str_squish(paste(tokens[name_idx], collapse = " ")) else NA_character_
   list(name = out, idx = name_idx)
 }
-
 # ------------ EVENT parsing (XREF suppressed; RELI value→text; WITN/GODP→NOTE) ------------
 # returns list(events = tibble(event,date,place,text), used = logical vector)
 .parse_events_mark <- function(tokens, used_init = NULL) {
@@ -282,44 +337,12 @@ parse_person_lines <- function(text_lines) {
       NA_character_
     }
     
-    # Extract name, handling XREF cases differently
-    if (!is.na(extracted_indiv_id)) {
-      # For XREF records, name comes before the 'XREF' token
-      xref_pos <- which(tokens == "XREF")
-      if (length(xref_pos) > 0) {
-        name_tokens <- tokens[1:(xref_pos[1] - 1)]
-        
-        # Extract capitalized words from the name part
-        cap_tokens <- name_tokens[str_detect(name_tokens, "^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\\-]+")]
-        
-        # Handle witnesses (max 2) + spouse name
-        if (length(cap_tokens) > 2) {
-          # More than 2 capitalized words - likely witnesses + spouse
-          # Last surname is the spouse surname, second-to-last might be given name
-          spouse_surname <- cap_tokens[length(cap_tokens)]
-          
-          # Look for a capitalized given name that comes right before the surname
-          surname_pos <- which(name_tokens == spouse_surname)
-          if (length(surname_pos) > 0 && surname_pos[1] > 1) {
-            potential_given <- name_tokens[surname_pos[1] - 1]
-            if (str_detect(potential_given, "^[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\\-]+")) {
-              spouse_name <- paste(potential_given, spouse_surname)
-            } else {
-              spouse_name <- spouse_surname
-            }
-          } else {
-            spouse_name <- spouse_surname
-          }
-          name_res <- list(name = spouse_name, idx = integer())
-        } else {
-          # 2 or fewer capitalized words, use normal extraction
-          name_res <- .extract_name_tokens_mark(tokens)
-        }
-      } else {
-        name_res <- .extract_name_tokens_mark(tokens)
-      }
-    } else {
-      name_res <- .extract_name_tokens_mark(tokens)
+    # Extract name - use normal extraction for all cases
+    name_res <- .extract_name_tokens_mark(tokens)
+    
+    # Apply name rearrangement if we have a name
+    if (!is.na(name_res$name)) {
+      name_res$name <- rearrange_name(name_res$name)
     }
     
     used <- rep(FALSE, length(tokens))
@@ -355,4 +378,3 @@ parse_person_lines <- function(text_lines) {
     result
   })
 }
-
